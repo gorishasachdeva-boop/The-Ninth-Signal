@@ -1,0 +1,2449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Ninth Signal</title>
+
+<style>
+* { box-sizing: border-box; }
+
+/* Press T in the game to tune these live. */
+:root {
+  --blue: #a7ceff;
+  --dark: #030713;
+  --u: 1vw;            /* 1% of the scene width (the script sets this exactly) */
+
+  --man-bright: 1;
+  --man-contrast: 1.08;
+  --man-sat: .95;
+  --man-sepia: 0;
+  --man-size: 4.6;     /* man width at the doorstep, in % of the scene width */
+  --man-feet: 0;
+}
+
+body { margin: 0; background: var(--dark); color: #edf2ff; font-family: Georgia, "Times New Roman", serif; }
+
+.screen { display: none; position: relative; width: 100%; height: 100vh; height: 100svh; overflow: hidden; isolation: isolate; }
+.screen.active { display: flex; animation: fadeIn .8s ease both; }
+
+.background { position: absolute; inset: 0; z-index: -2; background-size: cover; background-position: center; background-repeat: no-repeat; }
+.shade { position: absolute; inset: 0; z-index: -1; pointer-events: none; background: linear-gradient(90deg, #020510a8 0%, #02051030 60%, #02051022 100%); }
+
+button { color: #edf2ff; background: #071329d9; border: 1px solid var(--blue); padding: 14px 20px; font: 12px Arial, sans-serif; letter-spacing: 1.5px; cursor: pointer; }
+button:hover { background: #244674; box-shadow: 0 0 20px #8abfff55; }
+button:disabled { opacity: .35; cursor: not-allowed; }
+button:disabled:hover { background: #071329d9; box-shadow: none; }
+
+.panel { width: min(650px, 90%); padding: 25px 0; background: transparent; text-shadow: 0 2px 12px #000; }
+.eyebrow { font: 12px Arial, sans-serif; letter-spacing: 5px; text-transform: uppercase; color: var(--blue); }
+h1 { font-size: clamp(38px, 7vw, 82px); font-weight: normal; letter-spacing: .1em; }
+h2 { font-size: clamp(28px, 5vw, 44px); font-weight: normal; }
+p  { font-size: 17px; line-height: 1.8; }
+
+.footer { position: absolute; bottom: 16px; left: 10px; right: 10px; text-align: center; font: 10px Arial, sans-serif; letter-spacing: 3px; color: #dce8ff; text-shadow: 0 2px 8px black; }
+#soundButton { position: fixed; z-index: 20; top: 12px; right: 12px; }
+
+/* ---------- ATMOSPHERE (kept light so the picture stays clear) ---------- */
+
+.atmosphere { position: absolute; inset: 0; z-index: 6; pointer-events: none; overflow: hidden; }
+.vignette { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 55%, transparent 55%, #01030a99 100%); }
+.fog {
+  position: absolute; left: -50%; width: 200%; height: 40%; opacity: .35;
+  background:
+    radial-gradient(ellipse at 20% 50%, #9db6d855 0, transparent 55%),
+    radial-gradient(ellipse at 60% 40%, #8aa4c944 0, transparent 50%),
+    radial-gradient(ellipse at 85% 60%, #a9bfdd44 0, transparent 55%);
+  filter: blur(14px);
+  animation: fogDrift 55s linear infinite alternate;
+}
+.fog.low  { bottom: 0; }
+.fog.high { bottom: 22%; opacity: .22; animation-duration: 80s; animation-direction: alternate-reverse; }
+@keyframes fogDrift { from { transform: translateX(0); } to { transform: translateX(25%); } }
+
+.grain {
+  position: absolute; inset: -50px; opacity: .04;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  animation: grainShift .5s steps(4) infinite;
+}
+@keyframes grainShift {
+  0% { transform: translate(0,0); } 25% { transform: translate(-20px,12px); }
+  50% { transform: translate(15px,-18px); } 75% { transform: translate(-12px,-8px); }
+  100% { transform: translate(18px,10px); }
+}
+
+/* ---------- TITLE ---------- */
+
+#titleScreen { align-items: center; justify-content: center; text-align: center; padding: 24px; }
+#titleScreen .background { background-image: url("./OutsideTheObservatory.png"); }
+
+/* ---------- PROLOGUE (at home, the radio call, the boat) ---------- */
+#prologueScreen { align-items: center; justify-content: center; text-align: center; padding: 24px; background: radial-gradient(ellipse at 50% 65%, #1a2740 0%, #070c18 55%, #02040a 100%); }
+#prologueScreen .panel { position: relative; z-index: 7; }
+
+/* Coordinates footage: shown only while the coordinates narration plays */
+#coordinatesVideo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .6s ease;
+}
+#coordinatesVideo.visible { opacity: .62; }
+#boatVideo {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; z-index: 0; opacity: 0; pointer-events: none;
+  transition: opacity .6s ease;
+}
+#boatVideo.visible { opacity: .75; }
+.homeFreq { font: 56px "Courier New", monospace; color: #ffbf5e; text-shadow: 0 0 18px #ff9a1f88; margin: 10px 0 2px; }
+.homeFreq small { display: block; font: 11px Arial, sans-serif; letter-spacing: 4px; color: var(--blue); text-shadow: none; }
+#txLines { min-height: 210px; margin-top: 14px; }
+.tx { margin: 12px 0; font-size: 16px; line-height: 1.6; animation: fadeIn 1.2s ease both; }
+.tx span { display: inline-block; margin-right: 8px; font: 11px Arial, sans-serif; letter-spacing: 3px; color: #ffbf5e; }
+.flash { position: absolute; inset: 0; z-index: 8; background: #cfe2ff; opacity: 0; pointer-events: none; }
+#prologueScreen.storm .flash { animation: lightning 4.2s infinite; }
+@keyframes lightning { 0%,86%,100% { opacity: 0; } 88% { opacity: .55; } 90% { opacity: .05; } 92% { opacity: .4; } 96% { opacity: 0; } }
+.rocking { animation: rock 2.6s ease-in-out infinite; }
+@keyframes rock { 0%,100% { transform: rotate(-1.4deg) translateY(0); } 50% { transform: rotate(1.4deg) translateY(8px); } }
+
+/* ---------- ARRIVAL SCREEN (between prologue and walking animation) ---------- */
+#arrivalScreen { align-items: center; justify-content: flex-start; padding: 24px 7%; }
+#arrivalScreen .background { background-image: url("./Chapter1.png"); }
+#arrivalScreen .panel { position: relative; z-index: 7; width: min(650px, 90%); margin-right: auto; }
+#arrivalScreen .shade { background: linear-gradient(90deg, #030713ee 0%, #030713bb 42%, #03071333 100%); }
+.arrival-buttons { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+
+/* ---------- EXTERIOR ----------
+   #stage is the Chapter1.png picture sized exactly like "cover".
+   Everything inside (path, door, man) is positioned in % of the picture,
+   so it stays on the path at any window size. */
+
+#stage {
+  position: absolute; left: 0; top: 0; width: 100%; height: 100%;
+  background: url("./Chapter1.png") center / 100% 100% no-repeat;
+}
+#stageShade { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(180deg, #02051018, transparent 50%, #02051050); }
+#stage .atmosphere { z-index: 3; }   /* fog sits BEHIND the man so he stays sharp */
+
+/* The door is the one painted in the picture. This invisible hotspot
+   sits on it (at the last point of the path) and only draws the warm
+   light that spills out when the door opens. */
+#doorHotspot {
+  position: absolute; z-index: 4; left: 59%; top: 61.8%;
+  width: 4%; height: 12%;
+  transform: translate(-50%, -100%); cursor: pointer;
+}
+body.tuning #doorHotspot { outline: 2px dashed #7fd4ff; background: #7fd4ff22; }
+body.editing #doorHotspot { pointer-events: none; }
+
+#doorLight {
+  position: absolute; left: 50%; top: 45%; width: 320%; aspect-ratio: 1; border-radius: 50%;
+  transform: translate(-50%, -50%) scale(.2); opacity: 0; pointer-events: none;
+  display: none;
+  background: none;
+  transition: transform 2.3s ease-in, opacity 1.3s ease-in;
+}
+#doorHotspot.opening #doorLight { opacity: 1; transform: translate(-50%, -50%) scale(16); }
+
+
+
+/* Character: #actor (position + distance scale)
+                .actorShadow (ground shadow)
+                .actorBody   (flipped when walking left)
+                   #player   (shows one frame of a walk sheet) */
+
+#actor {
+  position: absolute; z-index: 5;
+  width: calc(var(--man-size) * var(--u));
+  left: 35%; top: 93%;
+  transform: translate(-50%, calc(-100% + var(--man-feet) * 1%)) scale(var(--s, 1));
+  transform-origin: 50% 100%;
+  pointer-events: none;
+}
+
+.actorShadow {
+  position: absolute; left: 50%; bottom: -2%; width: 78%; height: 7%;
+  transform: translateX(-50%);
+  background: radial-gradient(ellipse at center, #000d 0%, #0007 45%, transparent 72%);
+  filter: blur(2px);
+}
+
+.actorBody { position: relative; transform-origin: 50% 100%; }
+.actorBody.flip { transform: scaleX(-1); }
+
+/* Each sheet holds 5 equal frames side by side */
+.sprite {
+  display: block; width: 100%;
+  image-rendering: auto;
+  aspect-ratio: var(--ar, .416);
+  background-repeat: no-repeat;
+  background-size: 400% 100%;   /* 4 frames per sheet */
+  filter:
+    brightness(var(--man-bright)) contrast(var(--man-contrast))
+    saturate(var(--man-sat)) sepia(var(--man-sepia));
+}
+
+#actor.entering {
+  transition: left 1.9s ease-in-out, top 1.9s ease-in-out, transform 1.9s ease-in-out, opacity 1.1s ease-in 1s;
+  opacity: 0;
+}
+
+#walkInfo {
+  position: absolute; z-index: 7; left: 50%; bottom: 28px; transform: translateX(-50%);
+  width: min(650px, 92%); padding: 12px 18px;
+  background: #030713bb; border: 1px solid #9bcaff66; text-align: center; text-shadow: 0 2px 8px black;
+}
+#walkMessage { margin: 0 0 8px; }
+#walkHint { font: 12px Arial, sans-serif; color: var(--blue); letter-spacing: 1px; }
+
+#doorPrompt {
+  display: none; position: absolute; z-index: 8; left: 50%; top: 14%; transform: translateX(-50%);
+  width: 90%; text-align: center; font: 13px Arial, sans-serif; text-shadow: 0 2px 10px black;
+}
+
+/* ---------- INTERIOR ---------- */
+
+#interiorScreen { align-items: center; justify-content: center; }
+#interiorScreen .background, #clueScreen .background { background-image: url("./ManEnters.png"); }
+
+#interiorCaption {
+  position: absolute; z-index: 7; left: 50%; top: 12%; transform: translateX(-50%);
+  width: 90%; text-align: center; font-size: clamp(18px, 3vw, 28px); text-shadow: 0 2px 12px black;
+}
+
+/* Hidden unless SHOW_INSIDE_MAN is true (ManEnters.png may already show him) */
+#insidePlayer {
+  display: none; position: absolute; z-index: 5;
+  width: calc(var(--man-size) * 4 * 1vw);
+  left: 50%; bottom: -300px; transform: translateX(-50%);
+}
+#insidePlayer.visible { display: block; }
+#interiorScreen.entering #insidePlayer { animation: enterRoom 2.5s ease-out forwards; }
+@keyframes enterRoom {
+  from { bottom: -300px; transform: translateX(-50%) scale(1.1); }
+  to   { bottom: 12%;    transform: translateX(-50%) scale(1); }
+}
+
+/* ---------- CLUES ---------- */
+
+#clueScreen { align-items: center; justify-content: center; padding: 30px 20px 55px; overflow-y: auto; }
+#clueScreen .shade { background: #02051088; }
+.clueLayout { width: min(1050px, 100%); margin: auto; display: grid; grid-template-columns: 1fr .9fr; gap: 22px; position: relative; z-index: 7; }
+.cluePanel { padding: 22px; background: #030713bd; border: 1px solid #9bcaff55; backdrop-filter: blur(3px); }
+.clueButtons { display: grid; gap: 10px; }
+.clueButtons button { text-align: left; width: 100%; }
+.evidence { min-height: 150px; padding: 15px; line-height: 1.8; background: #030713a8; border-left: 2px solid var(--blue); }
+
+/* The room is dark until the generator is running */
+#darkness { position: absolute; inset: 0; z-index: 6; background: #000; opacity: .82; pointer-events: none; }
+#darkness.flicker { animation: flick 1.6s steps(1) forwards; }
+@keyframes flick {
+  0% { opacity: .82; } 10% { opacity: .3; } 20% { opacity: .8; } 35% { opacity: .15; }
+  45% { opacity: .7; } 60% { opacity: .1; } 75% { opacity: .5; } 100% { opacity: 0; }
+}
+
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* ---------- TUNER + PATH EDITOR ---------- */
+
+#tuner, #pathEditor {
+  display: none; position: fixed; z-index: 50; bottom: 12px; width: 290px; padding: 14px;
+  background: #030713ee; border: 1px solid var(--blue); font: 12px Arial, sans-serif; color: #edf2ff;
+  max-height: calc(100vh - 24px); overflow-y: auto;
+}
+#tuner { left: 12px; }
+#pathEditor { right: 12px; }
+#tuner.show, #pathEditor.show { display: block; }
+#tuner h3, #pathEditor h3 { margin: 0 0 8px; font: 13px Arial, sans-serif; letter-spacing: 2px; color: var(--blue); }
+#tuner label, #pathEditor label { display: block; margin: 8px 0 2px; }
+#tuner input[type=range] { width: 100%; }
+#pathEditor input[type=number] { width: 70px; }
+#tuner textarea, #pathEditor textarea { width: 100%; height: 110px; margin-top: 10px; background: #000; color: #9fe3a8; border: 1px solid #355; font: 11px monospace; }
+.tip { margin: 8px 0 0; font-size: 11px; line-height: 1.5; color: #b9c7e6; }
+#pathEditor button { padding: 8px 10px; font-size: 11px; margin: 6px 4px 0 0; }
+
+#pathOverlay { display: none; position: absolute; inset: 0; z-index: 9; pointer-events: none; }
+body.editing #pathOverlay { display: block; }
+body.editing #stage { cursor: crosshair; }
+#pathSvg { position: absolute; inset: 0; width: 100%; height: 100%; }
+#pathLine { fill: none; stroke: #ffd36b; stroke-width: 2; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; }
+.pathDot {
+  position: absolute; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%;
+  background: #ffd36bdd; color: #000; font: bold 11px Arial, sans-serif; text-align: center; line-height: 22px;
+  pointer-events: auto; cursor: grab; border: 2px solid #000;
+}
+.pathDot.steps { background: #7fd4ffdd; }
+
+@media(max-width: 700px) { .clueLayout { grid-template-columns: 1fr; } #walkInfo { bottom: 20px; } }
+@media(prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+
+/* ---------- OVERLAYS: LOCK, RECEIVER, JOURNAL ---------- */
+.overlay { display:none; position:fixed; inset:0; z-index:30; align-items:center; justify-content:center; background:#020610d9; padding:16px; }
+.overlay.show { display:flex; }
+.box { width:min(560px,100%); padding:26px; background:#050d1f; border:1px solid #9bcaff66; box-shadow:0 0 40px #4a90e233; text-align:center; max-height:92vh; overflow:auto; }
+.box p { font-size:15px; line-height:1.7; }
+.syms { display:flex; justify-content:center; flex-wrap:wrap; gap:12px; margin:18px 0; }
+.syms button { font-size:34px; padding:14px 22px; }
+.slots { font-size:30px; letter-spacing:12px; min-height:44px; color:var(--blue); }
+.msg { min-height:24px; font:13px Arial,sans-serif; letter-spacing:1px; color:#ffd48a; }
+#freq { font:54px "Courier New",monospace; color:#ffbf5e; text-shadow:0 0 14px #ff9a1f88; margin:6px 0; }
+#meter { height:14px; border:1px solid var(--blue); margin:12px 0; background:#020610; }
+#meterFill { height:100%; width:0; background:linear-gradient(90deg,#3a7bd5,#ffbf5e); transition:width .12s; }
+.row { display:flex; justify-content:center; gap:10px; flex-wrap:wrap; margin:8px 0; }
+#rxText { min-height:70px; padding:12px; text-align:left; border-left:2px solid #ffbf5e; background:#030713a8; font-style:italic; }
+#journalList div { text-align:left; margin:10px 0; padding:10px 14px; border-left:2px solid var(--blue); background:#030713a8; line-height:1.6; font-size:14px; }
+
+/* ---------- STAR CHART ---------- */
+#lockOverlay .box { width:min(680px,100%); }
+.chartWrap { margin:14px auto 6px; max-width:620px; transform:rotate(-1deg); filter:drop-shadow(0 14px 18px #000c); transition:transform .4s; }
+.chartWrap:hover { transform:rotate(0deg) scale(1.02); }
+.chartWrap svg { width:100%; height:auto; display:block; }
+.ink { fill:none; stroke:#2e2013; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; }
+.inkFill { fill:#2e2013; }
+.hand { font-family:"Segoe Script","Bradley Hand","Brush Script MT","Comic Sans MS",cursive; fill:#2a1b10; }
+
+/* ---------- OBJECT VIEWS ---------- */
+#objOverlay .box { width:min(860px,100%); background:#0a0f1c; }
+.hw { font-family:"Segoe Script","Bradley Hand","Brush Script MT","Comic Sans MS",cursive; }
+.book { position:relative; display:grid; grid-template-columns:1fr 1fr; padding:14px; background:#3a2412; border-radius:8px; box-shadow:0 22px 40px #000c, inset 0 0 0 2px #6b4524; transform:perspective(1400px) rotateX(5deg); }
+.book::after { content:""; position:absolute; left:50%; top:14px; bottom:14px; width:26px; margin-left:-13px; background:linear-gradient(90deg,transparent,#0006,transparent); pointer-events:none; }
+.page { padding:22px 26px; min-height:330px; text-align:left; color:#2a1b10; font-size:14px; line-height:1.75; position:relative; }
+.page.l { background:radial-gradient(circle at 20% 80%,#b48a4a55,transparent 40%),linear-gradient(90deg,#d8c595,#e9d9ac 75%,#bb9c65); border-radius:4px 0 0 4px; }
+.page.r { background:radial-gradient(circle at 80% 20%,#a8783a55,transparent 40%),linear-gradient(270deg,#d8c595,#e9d9ac 75%,#bb9c65); border-radius:0 4px 4px 0; }
+.page h4 { margin:0 0 8px; font-size:16px; border-bottom:1px solid #5a3b1d66; }
+.page .cross { text-decoration:line-through; text-decoration-thickness:3px; text-decoration-color:#3a1a10; opacity:.8; }
+.page .circle { border:2px solid #8a1d12; border-radius:50%; padding:0 6px; }
+.ribbon { position:absolute; right:48px; bottom:-18px; width:16px; height:60px; background:#7a1a14; clip-path:polygon(0 0,100% 0,100% 100%,50% 85%,0 100%); }
+.torn { position:absolute; left:0; top:0; bottom:0; width:10px; background:repeating-linear-gradient(180deg,#b79a63 0 6px,#e4d3a3 6px 9px); }
+.deskGrid { display:flex; flex-wrap:wrap; gap:22px; justify-content:center; align-items:center; padding:24px; background:radial-gradient(ellipse at 50% 40%,#6b4a2a,#2e1d0e); border-radius:8px; }
+.polaroid { background:#e9e2cf; padding:10px 10px 30px; box-shadow:0 12px 22px #000b; transform:rotate(-4deg); width:260px; }
+.polaroid svg { display:block; width:100%; filter:sepia(.8) contrast(1.1); }
+.polaroid .cap { margin-top:8px; color:#2a1b10; font-size:13px; }
+.note { background:#e6d7a8; color:#2a1b10; padding:22px 24px; width:260px; text-align:left; font-size:15px; line-height:1.8; transform:rotate(3deg); box-shadow:0 12px 22px #000b; background-image:linear-gradient(transparent 27px,#8a6a3a33 28px); background-size:100% 28px; }
+.sketch { background:#e6d7a8; color:#2a1b10; padding:14px; box-shadow:0 12px 22px #000b; transform:rotate(2deg); width:300px; text-align:left; font-size:13px; line-height:1.6; }
+
+/* ---------- RADIO ---------- */
+#rxOverlay .box { width:min(720px,100%); background:#0a0f1c; }
+.radio { background:linear-gradient(#5e3d21,#3a2310); border:3px solid #24150a; border-radius:14px; padding:16px 18px 20px; box-shadow:inset 0 0 0 2px #7e5733,0 18px 40px #000b; }
+.plate { font:11px Arial,sans-serif; letter-spacing:4px; color:#d8b36a; margin-bottom:10px; }
+.rBody { display:grid; grid-template-columns:86px 1fr 96px; gap:12px; align-items:center; }
+.speaker { height:128px; border-radius:8px; background:repeating-linear-gradient(0deg,#150f08 0 4px,#3d2c1a 4px 7px); box-shadow:inset 0 0 12px #000; }
+.dialWin { position:relative; height:128px; border-radius:8px; overflow:hidden; color:#2a1b10; background:linear-gradient(#f3dca4,#c99b4a); box-shadow:inset 0 0 20px #4a2c0a,0 0 20px #ffb04a55; }
+#scale { position:absolute; left:4%; right:4%; top:30px; height:44px; }
+#scale i { position:absolute; top:0; width:1px; height:11px; background:#2a1b10; }
+#scale i.big { height:22px; width:2px; }
+#scale b { position:absolute; top:25px; transform:translateX(-50%); font:11px "Courier New",monospace; }
+#needle { position:absolute; top:22px; height:62px; width:2px; background:#c0261b; box-shadow:0 0 7px #ff5a3a; transition:left .15s; }
+.dialWin #freq { position:absolute; bottom:6px; left:0; right:0; margin:0; text-align:center; font:700 28px "Courier New",monospace; color:#7a1d10; text-shadow:none; }
+.vu { position:relative; height:76px; border-radius:76px 76px 6px 6px; background:radial-gradient(circle at 50% 100%,#f3dca4,#c9a45a); box-shadow:inset 0 0 10px #4a2c0a; overflow:hidden; }
+.vu span { position:absolute; bottom:4px; width:100%; text-align:center; font:8px Arial; letter-spacing:2px; color:#2a1b10; }
+#vuNeedle { position:absolute; left:50%; bottom:14px; width:2px; height:54px; margin-left:-1px; background:#1b1b1b; transform-origin:bottom; transform:rotate(-50deg); transition:transform .2s; }
+.knobs { display:flex; justify-content:center; gap:46px; align-items:flex-end; margin-top:16px; }
+.knobs .k { font:10px Arial,sans-serif; letter-spacing:2px; color:#d8b36a; }
+.knob { position:relative; width:78px; height:78px; margin:0 auto 6px; border-radius:50%; cursor:grab; touch-action:none; background:conic-gradient(from 0deg,#8c9199,#2d3239,#8c9199,#2d3239,#8c9199); box-shadow:0 7px 12px #000a,inset 0 0 0 4px #15181c; transition:transform .12s; }
+.knob i { position:absolute; left:50%; top:7px; width:4px; height:20px; margin-left:-2px; background:#f3dca4; border-radius:2px; }
+.knob.small { width:54px; height:54px; }
+.knob.locked { opacity:.4; }
+.glow { border-color:#ffbf5e; box-shadow:0 0 18px #ffbf5e88; animation:pulseGlow 1.4s ease-in-out infinite; }
+@keyframes pulseGlow { 0%,100% { box-shadow:0 0 8px #ffbf5e55; } 50% { box-shadow:0 0 26px #ffbf5ecc; } }
+
+/* ---------- TELESCOPE EYEPIECE ---------- */
+#scopeOverlay .box { width:min(500px,100%); background:#0a0f1c; }
+#scopeCanvas { width:min(340px,100%); height:auto; border-radius:50%; border:6px solid #1a1e24; box-shadow:0 0 0 3px #58616d, inset 0 0 30px #000, 0 0 30px #000a; background:#02040c; touch-action:none; cursor:grab; }
+.ctrl { display:grid; grid-template-columns:44px 1fr 52px; gap:8px; align-items:center; margin:8px 0; font:12px Arial,sans-serif; letter-spacing:2px; color:#d8b36a; }
+.ctrl input { width:100%; }
+.counter { display:flex; justify-content:center; align-items:center; gap:8px; margin:12px 0 4px; font:10px Arial,sans-serif; letter-spacing:3px; color:#d8b36a; }
+.digit { display:inline-block; width:42px; height:56px; line-height:56px; font:700 32px "Courier New",monospace; background:#0c0f12; color:#4a4f55; border:2px solid #58616d; border-radius:4px; }
+.digit.on { color:#ffbf5e; text-shadow:0 0 10px #ff9a1f88; }
+
+/* ---------- SIGNAL 9 PLAYBACK / TWIST / ENDINGS ---------- */
+#twistOverlay .box { width:min(640px,100%); background:#070b16; }
+.wave { display:flex; gap:3px; align-items:center; justify-content:center; height:50px; margin:14px 0; }
+.wave i { width:4px; height:8px; background:#ffbf5e; border-radius:2px; animation:wv .8s ease-in-out infinite alternate; }
+.wave.panic i { animation-duration:.2s; background:#ff6a4a; }
+.wave.still i { animation:none; height:3px; opacity:.4; }
+@keyframes wv { from { height:6px; } to { height:44px; } }
+#twCaption { min-height:90px; padding:14px; text-align:left; font-size:17px; line-height:1.7; border-left:2px solid #ffbf5e; background:#030713a8; }
+#twCaption small { color:#9fb4d8; font-size:13px; }
+#twReveal { display:none; text-align:left; }
+#twReveal h3 { margin:6px 0 10px; font:13px Arial,sans-serif; letter-spacing:3px; color:var(--blue); }
+#twReveal p { font-size:15px; margin:10px 0; }
+#twReveal b { color:#ffbf5e; }
+.orb { width:90px; height:90px; margin:18px auto; border-radius:50%; background:radial-gradient(circle,#fff0c4,#ffbf5e 40%,#ff7a1f55 70%,transparent 72%); animation:orbPulse 2.2s ease-in-out infinite; }
+@keyframes orbPulse { 0%,100% { transform:scale(.92); opacity:.8; } 50% { transform:scale(1.08); opacity:1; } }
+.choices { display:grid; gap:12px; margin-top:16px; }
+.choices button { text-align:left; padding:16px 18px; line-height:1.6; }
+.choices button small { display:block; margin-top:4px; font:12px Georgia,serif; letter-spacing:0; color:#b9c7e6; }
+#endOverlay { background:#010308f7; z-index:40; }
+#endOverlay .box { background:transparent; border:none; box-shadow:none; width:min(640px,100%); }
+
+.box.shake{animation:shk .1s linear infinite}
+@keyframes shk{0%{transform:translate(2px,-1px)}25%{transform:translate(-3px,2px)}50%{transform:translate(2px,3px)}75%{transform:translate(-2px,-2px)}100%{transform:translate(1px,1px)}}
+#twistOverlay.alarm::after{content:"";position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at 50% 50%,transparent 35%,#ff1a0088 100%);animation:alm .55s ease-in-out infinite alternate}
+@keyframes alm{from{opacity:.08}to{opacity:1}}
+.rift{width:170px;height:170px;margin:8px auto 14px;border-radius:50%;background:conic-gradient(#000,#7fb4ff,#000,#ffbf5e,#000,#7fb4ff,#000);filter:blur(2px);-webkit-mask:radial-gradient(circle,transparent 16%,#000 22%,#000 58%,transparent 70%);mask:radial-gradient(circle,transparent 16%,#000 22%,#000 58%,transparent 70%);animation:spin 6s linear infinite}
+.rift.pull{animation-duration:.7s;transform:scale(2.4);transition:transform 6s ease-in}
+@keyframes spin{to{transform:rotate(360deg)}}
+#endText p{animation:fadeIn 2s ease both;margin:14px 0}
+
+/* ---------- ENDING A EPILOGUE (picture sequence) ---------- */
+#epilogue { position:fixed; inset:0; z-index:45; background:#000; display:none; flex-direction:column; align-items:center; justify-content:center; gap:26px; opacity:0; transition:opacity 1.6s ease; }
+#epilogue.show { display:flex; }
+#epilogue.on { opacity:1; }
+#epiFrame { position:relative; width:min(1120px,94vw); aspect-ratio:2.2/1; overflow:hidden; background:#000; box-shadow:0 0 70px #000; transition:opacity .9s ease; }
+#epiFrame.wide { width:100vw; aspect-ratio:1672/281; box-shadow:none; }
+#epiFrame::after { content:""; position:absolute; inset:0; pointer-events:none; background:radial-gradient(ellipse at 50% 50%, transparent 58%, #000b 100%); }
+#epiFrame img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:0; transition:opacity 1.4s ease; transform-origin:50% 55%; }
+#epiFrame img.kb { animation:kenBurns 10s ease-out forwards; }
+@keyframes kenBurns { from { transform:scale(1); } to { transform:scale(1.08); } }
+#epiCap { width:min(820px,92vw); min-height:96px; text-align:center; text-shadow:0 2px 12px #000; transition:opacity .45s ease; }
+#epiTitle { font:12px Arial,sans-serif; letter-spacing:5px; text-transform:uppercase; color:var(--blue); }
+#epiText { font-size:17px; line-height:1.7; margin:10px 0 0; }
+#epiSkip { position:absolute; top:14px; left:14px; z-index:7; padding:10px 14px; font-size:11px; }
+#epiBlack { position:absolute; inset:0; z-index:6; background:#000; opacity:0; pointer-events:none; transition:opacity 3s ease; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:20px; text-align:center; }
+#epiBlack.on { opacity:1; pointer-events:auto; }
+#epiBlack .after { opacity:0; transition:opacity 1.6s ease; display:flex; flex-direction:column; align-items:center; gap:22px; }
+#epiBlack.btn .after { opacity:1; }
+#epiFinal{text-align:center;text-shadow:0 2px 12px #000}
+#epiFinal .q{font:16px "Courier New",monospace;line-height:1.9;color:#dce8ff;margin:0 0 30px}
+#epiFinal .t{font-size:clamp(24px,4vw,40px);letter-spacing:.3em;margin:0}
+#epiFinal .s{font:11px Arial,sans-serif;letter-spacing:6px;color:var(--blue);margin:14px 0 0}
+#endText p.card{font:12px Arial,sans-serif;letter-spacing:4px;color:var(--blue);margin-top:26px}
+#clueScreen::after{content:"";position:absolute;inset:0;z-index:6;pointer-events:none;background:radial-gradient(circle at 70% 20%,#ffd08a22,transparent 40%);animation:lampFlick 5s steps(1) infinite}
+@keyframes lampFlick{0%,100%{opacity:1}8%{opacity:.4}10%{opacity:1}52%{opacity:.7}54%{opacity:1}}
+.digital{margin-top:16px;padding:12px;border:1px solid #7e5733;border-radius:8px;background:#120b05}
+.dRow{display:flex;gap:6px;justify-content:center;align-items:center;flex-wrap:wrap}
+.dRow button{padding:10px 12px;font-size:12px}
+#dNum{width:104px;padding:8px;font:700 24px "Courier New",monospace;text-align:center;color:#ffbf5e;background:#050302;border:1px solid #ffbf5e;border-radius:4px;text-shadow:0 0 10px #ff9a1f88}
+#dSlider{width:100%;margin-top:12px;accent-color:#ffbf5e}
+.dTag{margin-top:6px;font:9px Arial,sans-serif;letter-spacing:3px;color:#d8b36a}
+</style>
+</head>
+
+<body>
+
+<button id="soundButton" onclick="toggleMusic()">♫ ENABLE SOUND</button>
+
+<section id="titleScreen" class="screen active">
+  <div class="background"></div>
+  <div class="shade"></div>
+
+  <div class="panel">
+    <div class="eyebrow">An Illustrated Mystery Adventure</div>
+    <h1>THE NINTH SIGNAL</h1>
+    <p>In 1974, an entire research team vanished overnight from a remote island observatory.</p>
+    <p>Fifty years later, a transmission has started again.</p>
+    <p><i>"The ninth signal was never meant to be heard."</i></p>
+    <button onclick="startPrologue()">BEGIN INVESTIGATION →</button>
+  </div>
+
+  <div class="atmosphere">
+    <div class="fog low"></div>
+    <div class="vignette"></div>
+    <div class="grain"></div>
+  </div>
+
+  <div class="footer">1974 · REMOTE ISLAND OBSERVATORY · SIGNAL DETECTED</div>
+</section>
+
+
+<section id="prologueScreen" class="screen">
+  <video id="coordinatesVideo" src="./video.mp4" playsinline preload="auto"></video>
+  <video id="boatVideo" src="./boat.mp4" playsinline preload="auto"></video>
+  <div class="flash"></div>
+  <div class="panel" id="prologuePanel">
+    <div class="eyebrow">Prologue · Home · Late at night</div>
+    <div class="homeFreq">108.0 <small>MHz · PUBLIC EMERGENCY CHANNEL</small></div>
+    <div id="txLines"></div>
+    <div class="arrival-buttons" id="prologueButtons" style="display:none;justify-content:center">
+      <button onclick="sail()">TAKE THE BOAT →</button>
+    </div>
+  </div>
+  <div class="atmosphere">
+    <div class="vignette"></div>
+    <div class="grain"></div>
+  </div>
+  <div class="footer">AN OLD RADIO · A STATIC BROADCAST · AN AUTOMATED VOICE</div>
+</section>
+
+
+<section id="arrivalScreen" class="screen">
+  <div class="background"></div>
+  <div class="shade"></div>
+  <div class="panel">
+    <div class="eyebrow">Chapter 1</div>
+    <h2>ARRIVAL</h2>
+    <p>
+      You land on the rocky shore and climb toward the old observatory.
+      Nobody has lived here for fifty years. Salt has eaten the railings, a buoy bell tolls somewhere in the dark, and the lighthouse beam sweeps over the rocks every nine seconds. Nine, you notice. Always nine.
+    </p>
+    <p>
+      This is the place where the research team vanished overnight in 1974.
+      Somewhere inside these ruins, a receiver is waiting — and the signal has started again.
+    </p>
+    <div class="arrival-buttons">
+      <button onclick="beginChapter()">CONTINUE TO THE OBSERVATORY →</button>
+      <button onclick="showScreen('titleScreen')">BACK</button>
+    </div>
+  </div>
+  <div class="atmosphere">
+    <div class="fog low"></div>
+    <div class="vignette"></div>
+    <div class="grain"></div>
+  </div>
+  <div class="footer">CHAPTER 1 · THE ISLAND · 23:47</div>
+</section>
+
+<section id="walkScreen" class="screen">
+  <div id="stage">
+    <div id="stageShade"></div>
+
+    <div class="atmosphere">
+      <div class="fog high"></div>
+      <div class="fog low"></div>
+      <div class="vignette"></div>
+      <div class="grain"></div>
+    </div>
+
+    <div id="doorHotspot" onclick="openDoor()"><div id="doorLight"></div></div>
+
+    <div id="actor">
+      <div class="actorShadow"></div>
+      <div class="actorBody" id="actorBody">
+        <div id="player" class="sprite" role="img" aria-label="The investigator"></div>
+        <img id="walkGif" alt="" draggable="false">
+      </div>
+    </div>
+
+    <div id="pathOverlay">
+      <svg id="pathSvg" viewBox="0 0 100 100" preserveAspectRatio="none"><polyline id="pathLine" points=""></polyline></svg>
+      <div id="pathDots"></div>
+    </div>
+  </div>
+
+  <div id="doorPrompt">PRESS E OR CLICK THE DOOR TO OPEN IT</div>
+
+  <div id="walkInfo">
+    <p id="walkMessage">You approach the abandoned observatory...</p>
+    <div id="walkHint">THE INVESTIGATOR IS APPROACHING THE ENTRANCE</div>
+  </div>
+</section>
+
+<section id="interiorScreen" class="screen">
+  <div class="background"></div>
+  <div class="shade"></div>
+
+  <div id="insidePlayer" class="sprite" role="img" aria-label="The investigator entering"></div>
+
+  <div class="atmosphere">
+    <div class="vignette"></div>
+    <div class="grain"></div>
+  </div>
+
+  <div id="interiorCaption">The hinges groan. Dust lifts in the lantern light. Somewhere in the walls, something hums. It sounds almost like breathing…</div>
+</section>
+
+<section id="clueScreen" class="screen">
+  <div class="background"></div>
+  <div class="shade"></div>
+  <div id="darkness"></div>
+
+  <div class="atmosphere">
+    <div class="vignette"></div>
+    <div class="grain"></div>
+  </div>
+
+  <div class="clueLayout">
+    <div class="cluePanel">
+      <div class="eyebrow">Chapter 1 · Exploration</div>
+      <h2>The Old Observatory</h2>
+      <p id="clueIntro">The door closes behind you. The room is pitch black, but you can hear the shape of a generator humming faintly in the corner. Start it to light up the room.</p>
+
+      <div class="clueButtons">
+        <button id="genBtn" onclick="startGenerator()">⚡ Start the generator</button>
+        <button class="clueBtn" disabled onclick="inspectClue('journal')">📓 Read the journal on the desk</button>
+        <button class="clueBtn" disabled onclick="inspectClue('chart')">🗺️ Study the star chart on the wall</button>
+        <button class="clueBtn" disabled onclick="inspectClue('telescope')">🔭 Examine the telescope</button>
+        <button class="clueBtn" disabled onclick="inspectClue('receiver')">📻 Examine the receiver</button>
+        <button class="clueBtn" disabled onclick="inspectClue('desk')">✉️ Search the desk</button>
+      </div>
+    </div>
+
+    <div class="cluePanel">
+      <div class="eyebrow">Collected evidence</div>
+      <h2>Investigation Notes</h2>
+      <div id="clueText" class="evidence">It is too dark to see anything. Find the generator.</div>
+      <p id="clueCount">Clues discovered: 0 / 5</p>
+    </div>
+  </div>
+
+  <div class="footer">SIGNAL DETECTED · FREQUENCY UNKNOWN</div>
+</section>
+
+
+<div id="lockOverlay" class="overlay"><div class="box">
+  <div class="eyebrow">The Entrance</div><h2>Three-Symbol Lock</h2>
+  <p>A damaged star chart is bolted beside the door.</p>
+  <div class="chartWrap"><svg viewBox="0 0 600 340" role="img" aria-label="A torn, stained star chart showing a crescent, a star and a spiral">
+  <defs>
+    <filter id="tear" x="-5%" y="-5%" width="110%" height="110%">
+      <feTurbulence type="fractalNoise" baseFrequency=".035" numOctaves="4" seed="7" result="n"/>
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="16"/>
+    </filter>
+    <filter id="grain" x="0" y="0" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency=".9" numOctaves="3" seed="3"/>
+      <feColorMatrix values="0 0 0 0 .35  0 0 0 0 .25  0 0 0 0 .1  0 0 0 .55 0"/>
+    </filter>
+    <filter id="blotch" x="0" y="0" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency=".012" numOctaves="3" seed="11"/>
+      <feColorMatrix values="0 0 0 0 .4  0 0 0 0 .22  0 0 0 0 .06  0 0 0 2.2 -.85"/>
+    </filter>
+    <radialGradient id="age" cx="50%" cy="50%" r="75%">
+      <stop offset="55%" stop-color="#e3d3a4"/><stop offset="100%" stop-color="#8d6a34"/>
+    </radialGradient>
+    <filter id="smudge"><feGaussianBlur stdDeviation="2.2"/></filter>
+  </defs>
+
+  <g filter="url(#tear)">
+    <rect x="14" y="14" width="572" height="312" fill="url(#age)"/>
+    <rect x="14" y="14" width="572" height="312" filter="url(#grain)" opacity=".8"/>
+    <rect x="14" y="14" width="572" height="312" filter="url(#blotch)" opacity=".75"/>
+    <polygon points="586,250 520,326 586,326" fill="#050d1f"/>
+  </g>
+  <path d="M300 16 V326 M16 170 H584" stroke="#5c3d1a" stroke-opacity=".28" stroke-width="1.5"/>
+  <path d="M302 16 V326" stroke="#fff" stroke-opacity=".18" stroke-width="1"/>
+  <circle cx="470" cy="70" r="26" fill="none" stroke="#5a3513" stroke-opacity=".35" stroke-width="3"/>
+  <circle cx="470" cy="70" r="22" fill="#6b4420" opacity=".12"/>
+
+  <g transform="translate(300 150)">
+    <circle r="118" class="ink" stroke-width="2.2"/>
+    <circle r="110" class="ink" stroke-width=".8"/>
+    <circle r="62" class="ink" stroke-width=".8" stroke-dasharray="3 5"/>
+    <g id="chartTicks" class="ink" stroke-width=".9"></g>
+    <path d="M-118 0 H118 M0 -118 V118" class="ink" stroke-width=".6" stroke-dasharray="2 6"/>
+    <g id="chartStars"></g>
+
+    <g transform="translate(-72 38)"><circle r="6" class="inkFill"/><path d="M0 -14V-10M0 10V14M-14 0H-10M10 0H14M-10 -10l3 3M7 7l3 3M10 -10l-3 3M-7 7l-3 3" class="ink"/></g>
+    <g transform="translate(48 42)"><circle r="5" class="inkFill"/><path d="M-5 -2L-34 -15M-5 0L-36 -5M-4 3L-30 7" class="ink"/></g>
+    <g transform="translate(-8 -88)"><path d="M-15 0Q0 -13 15 0Q0 13 -15 0Z" class="ink"/><circle r="3.5" class="inkFill"/></g>
+    <g transform="translate(-62 -50)"><circle r="19" fill="#c9a85a" opacity=".5" filter="url(#smudge)"/><path d="M0 -14 a14 14 0 1 0 0 28 a11 11 0 1 1 0 -28 z" class="inkFill"/></g>
+    <g transform="translate(22 -40)"><circle r="19" fill="#c9a85a" opacity=".5" filter="url(#smudge)"/><polygon points="0,-15 4.5,-5 14,-4.5 6.5,3 9,13 0,7.5 -9,13 -6.5,3 -14,-4.5 -4.5,-5" class="inkFill"/></g>
+    <g transform="translate(58 -52)"><circle r="19" fill="#c9a85a" opacity=".5" filter="url(#smudge)"/><path transform="translate(0 1)" d="M0 0 a2 2 0 0 1 4 0 a4 4 0 0 1 -8 0 a6 6 0 0 1 12 0 a8 8 0 0 1 -16 0 a10 10 0 0 1 20 0" class="ink" stroke-width="2"/></g>
+    <text x="0" y="-126" text-anchor="middle" class="hand" font-size="13">N</text>
+    <ellipse cx="-30" cy="46" rx="26" ry="9" fill="#2e2013" opacity=".18" filter="url(#smudge)"/>
+  </g>
+
+  <text x="38" y="282" class="hand" font-size="15">“Begin with the moon,</text>
+  <text x="58" y="302" class="hand" font-size="15">follow the guiding star,</text>
+  <text x="78" y="322" class="hand" font-size="15">end where the heavens turn.”</text>
+  <text x="440" y="46" class="hand" font-size="11" opacity=".7" transform="rotate(-8 440 46)">Obs. 1974</text>
+
+  <rect x="62" y="4" width="70" height="26" fill="#d9cf9b" opacity=".6" transform="rotate(-14 97 17)"/>
+  <rect x="470" y="318" width="70" height="24" fill="#d9cf9b" opacity=".55" transform="rotate(8 505 330)"/>
+  <circle cx="30" cy="30" r="5" fill="#4a4a4a"/><circle cx="29" cy="29" r="2" fill="#9a9a9a"/>
+  <circle cx="572" cy="30" r="5" fill="#4a4a4a"/><circle cx="571" cy="29" r="2" fill="#9a9a9a"/>
+</svg></div>
+
+  <div class="slots" id="lockSlots">_ _ _</div>
+  <div class="syms" id="symRow"></div>
+  <div class="msg" id="lockMsg"></div>
+  <div class="row"><button onclick="resetLock()">CLEAR</button><button onclick="closeLock()">STEP BACK</button></div>
+</div></div>
+
+<div id="rxOverlay" class="overlay"><div class="box">
+  <div class="radio">
+    <div class="plate">NORTHWATCH · MODEL 9 · FIELD RECEIVER</div>
+    <div class="rBody">
+      <div class="speaker"></div>
+      <div class="dialWin"><div id="scale"></div><div id="needle"></div><div id="freq">108.0</div></div>
+      <div class="vu"><div id="vuNeedle"></div><span>SIGNAL</span></div>
+    </div>
+    <div class="knobs">
+      <div class="k"><div class="knob" id="knobMain"><i></i></div>TUNE · 1 MHz</div>
+      <div class="k"><div class="knob small locked" id="knobFine"><i></i></div>FINE · 0.1</div>
+    </div>
+    <div class="digital">
+      <div class="dRow">
+        <button onclick="nudge(-10)">« 1</button><button onclick="nudge(-1)">‹ 0.1</button>
+        <input id="dNum" type="number" min="88" max="108" step="0.1" value="108.0" aria-label="Frequency in MHz">
+        <button onclick="nudge(1)">0.1 ›</button><button onclick="nudge(10)">1 »</button>
+      </div>
+      <input type="range" id="dSlider" min="880" max="1080" step="1" value="1080" aria-label="Digital tuner">
+      <div class="dTag">DIGITAL TUNER · TYPE A FREQUENCY, SLIDE, OR STEP</div>
+    </div>
+    <div id="meter" style="display:none"><div id="meterFill"></div></div>
+  </div>
+  <div class="msg" id="rxStatus" style="margin-top:14px">Static…</div>
+  <div id="rxText">Use the digital tuner below, drag the knobs, or press Q / E. Step: <span id="rxStep">1 MHz</span></div>
+  <div class="row">
+    <button onclick="toggleStatic()" id="rxPower">MUTE</button>
+    <button id="listenBtn" onclick="listenSignal()">▶ LISTEN</button>
+    <button onclick="closeReceiver()">CLOSE (Esc)</button>
+  </div>
+</div></div>
+
+<div id="scopeOverlay" class="overlay"><div class="box">
+  <div class="eyebrow">The Telescope</div><h2>Eyepiece</h2>
+  <canvas id="scopeCanvas" width="360" height="360"></canvas>
+  <div class="ctrl"><span>AZ</span><input type="range" id="azSlider" min="0" max="359" step="1" value="20"><span id="azVal">20°</span></div>
+  <div class="ctrl"><span>ALT</span><input type="range" id="altSlider" min="0" max="90" step="1" value="25"><span id="altVal">25°</span></div>
+  <div class="counter">COUNTER
+    <span class="digit" id="d1">–</span><span class="digit" id="d2">–</span><span class="digit" id="d3">–</span>
+  </div>
+  <div class="msg" id="scopeMsg">Drag the sky or use the dials. Find the spiral from the star chart.</div>
+  <div class="row"><button onclick="closeScope()">STEP BACK (Esc)</button></div>
+</div></div>
+
+<div id="objOverlay" class="overlay"><div class="box">
+  <div id="objBody"></div>
+  <div class="row" style="margin-top:16px"><button onclick="closeObject()">CLOSE (Esc)</button></div>
+</div></div>
+
+<div id="journalOverlay" class="overlay"><div class="box">
+  <div class="eyebrow">Press J to close</div><h2>Research Journal</h2>
+  <div id="journalList"></div>
+  <div class="row"><button onclick="toggleJournal()">CLOSE</button></div>
+</div></div>
+
+<div id="twistOverlay" class="overlay"><div class="box">
+  <div class="eyebrow" id="twEyebrow">97.3 MHz · Signal 9 · Recording</div>
+  <div class="rift" id="twRift"></div><div class="wave" id="twWave"></div>
+  <div id="twCaption"></div>
+  <div id="twReveal"></div>
+  <div class="row"><button id="twContinue" style="display:none" onclick="toChoice()">CONTINUE →</button></div>
+</div></div>
+
+<div id="choiceOverlay" class="overlay"><div class="box">
+  <div class="eyebrow">The Final Choice</div>
+  <h2>The Glowing Radio</h2>
+  <div class="orb"></div>
+  <p>You stand at the glowing radio. The dial hums, the rift breathes behind the walls, and the screams from 1974 are still ringing in your ears. The last whisper said it plainly: whoever speaks into the rift is taken. You have one decision left.</p>
+  <div class="choices">
+    <button onclick="ending('A')">A · CLOSE THE LOOP<small>Cut the power and seal the rift. You walk away. The eight stay lost forever.</small></button>
+    <button onclick="ending('B')">B · ANSWER THE CALL<small>Key the transmitter and speak. The rift takes whoever transmits, and gives something back.</small></button>
+  </div>
+</div></div>
+
+<div id="epilogue">
+  <button id="epiSkip" onclick="skipEpilogue()">SKIP ▸</button>
+  <div id="epiFrame"><img id="epiImgA" alt=""><img id="epiImgB" alt=""></div>
+  <div id="epiCap"><div id="epiTitle"></div><div id="epiText"></div></div>
+  <div id="epiBlack"><div class="after">
+    <div id="epiFinal"></div>
+    <div class="eyebrow" id="epiEnd">Ending A · Silence</div>
+    <div class="row"><button onclick="location.reload()">PLAY AGAIN</button></div>
+  </div></div>
+</div>
+
+<div id="endOverlay" class="overlay"><div class="box">
+  <div class="eyebrow" id="endEyebrow"></div>
+  <h2 id="endTitle"></h2>
+  <div id="endText"></div><div class="rift" id="endRift" style="display:none"></div>
+  <div class="row" id="endBtn" style="margin-top:20px"><button onclick="location.reload()">PLAY AGAIN</button></div>
+</div></div>
+
+<div id="tuner">
+  <h3>TUNER · PRESS T TO HIDE</h3>
+  <div id="tunerControls"></div>
+  <textarea id="tunerOutput" readonly></textarea>
+  <p class="tip">Copy the printed values into the :root block of the CSS.</p>
+</div>
+
+<div id="pathEditor">
+  <h3>PATH EDITOR · PRESS P TO CLOSE</h3>
+  <p class="tip">Click the picture to add points along his route: start at the beginning of the dirt path, follow it, go up the steps, and end on the porch in front of the door. Drag a point to move it. Blue points are the steps.</p>
+  <label>Steps begin at point #
+    <input type="number" id="stepsFromInput" min="1" value="5">
+  </label>
+  <button onclick="undoPoint()">Undo last point</button>
+  <button onclick="clearPoints()">Clear all</button>
+  <button onclick="startWalk()">Replay walk</button>
+  <textarea id="pathOutput" readonly></textarea>
+  <p class="tip">When it looks right, copy the text above and paste it over the PATH and STEPS_FROM lines in the script.</p>
+</div>
+
+<audio id="music" src="./Mysterious.wav" loop preload="auto"></audio>
+
+<script>
+/* ============================================================
+   THE ROUTE (edit it visually: press P in the game)
+   Points are [x, y] in % of the Chapter1.png picture, measured at
+   his feet. The LAST point is the doorstep in front of the door.
+   Points from STEPS_FROM onward are the stone steps: he climbs
+   them slowly, facing away from us.
+   ============================================================ */
+let PATH = [
+  [35.2, 92.9],
+  [43.8, 86.7],
+  [53.1, 81.9],
+  [60.9, 77.8],
+  [65.2, 74.5],
+  [62.5, 71.6],
+  [60.2, 68.2],
+  [58.2, 65.5],
+  [59.0, 61.8]
+];
+let STEPS_FROM = 4;       // index (starting at 0) of the point where the steps begin
+
+/* Character sheets (each = 5 frames in a row; keep next to index.html) */
+const FRAME_COUNT = 4;
+/* WALK TIMING (so his feet stay planted instead of skating)
+   One walk cycle = 2 steps = 4 frames, and covers about 0.87 x his own height.
+   WALK_FPS = 3.5 -> one cycle every ~1.1 s (a calm, wary walking cadence).
+   PERSPECTIVE_SPEED makes him cover more of the screen per second when he is
+   big and near, and less when he is small and far, so his stride always
+   matches the ground under him. If you change WALK_FPS, change
+   PERSPECTIVE_SPEED by the same factor to keep the feet planted
+   (faster steps = higher number, slower steps = lower number). */
+const WALK_FPS = 3.5;
+const PERSPECTIVE_SPEED = 1.0;
+
+/* The animated walking GIF (transparent, keep it next to this file).
+   It plays while he walks to the observatory; the sprite sheet still draws
+   him standing still and when he is hurrying backwards. */
+const WALK_GIF = "./man_walk_transparent.gif";
+const USE_GIF = false;      // the 4 posed frames are driven by distance walked (feet stay planted)
+
+/* STRIDE: the 4 frames are [stride, passing, stride, passing] = 2 steps.
+   One full cycle covers STRIDE_CYCLE x his own height. Raise it if his feet
+   slide backwards, lower it if they drag. WALK_PACE is how fast he walks the path. */
+const STRIDE_CYCLE = 0.9;
+const WALK_PACE = 1.4;
+const IDLE_FPS = 3;
+const SHEETS = {
+  walk: { right: "./man_walk_right.png", back: "./man_walk_right.png", front: "./man_walk_right.png" },
+  idle: { right: "./man_idle_right.png", back: "./man_idle_right.png", front: "./man_idle_right.png" }
+};
+
+/* How much bigger he looks at the start of the path (near us)
+   than at the door (far away) */
+let NEAR_SCALE = 2.2;
+
+/* ManEnters.png may already show the man, so no second man by default.
+   Set to true if that picture is just an empty room. */
+const SHOW_INSIDE_MAN = false;
+
+/* ============================================================ */
+
+const music = document.getElementById("music");
+const soundButton = document.getElementById("soundButton");
+const stage = document.getElementById("stage");
+const player = document.getElementById("player");
+const insidePlayer = document.getElementById("insidePlayer");
+const actor = document.getElementById("actor");
+const actorBody = document.getElementById("actorBody");
+const doorHotspot = document.getElementById("doorHotspot");
+const doorPrompt = document.getElementById("doorPrompt");
+const walkMessage = document.getElementById("walkMessage");
+const walkHint = document.getElementById("walkHint");
+const interiorScreen = document.getElementById("interiorScreen");
+
+const sprites = [player, insidePlayer];
+const walkGif = document.getElementById("walkGif");
+let gifLoaded = false;
+let gifRun = 0;
+walkGif.onload = () => { gifLoaded = true; renderSprite(); };
+walkGif.onerror = () => { gifLoaded = false; console.warn("Missing " + WALK_GIF + " (keep it next to index.html); using the sprite sheet instead."); };
+/* reloading with a new ?n restarts the GIF on its first pose every time he starts walking */
+function restartGif() { if (!USE_GIF) return; gifLoaded = false; walkGif.src = WALK_GIF + "?r=" + (++gifRun); }
+
+let mode = "title";
+let soundOn = false;
+let keys = {};
+let lastFrame = 0;
+let transitionBusy = false;
+let loopRunning = false;
+let audioContext;
+const discovered = new Set();
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+/* ---------- STAGE: the picture sized like "cover" ---------- */
+
+let stageAspect = 16 / 9;   // picture width / height (read from the file)
+let stageRatio = 9 / 16;    // height / width
+
+function layoutStage() {
+  const vw = window.innerWidth, vh = window.innerHeight;
+  let w = vw, h = vw / stageAspect;
+  if (h < vh) { h = vh; w = vh * stageAspect; }
+  stage.style.width = w + "px";
+  stage.style.height = h + "px";
+  stage.style.left = (vw - w) / 2 + "px";
+  stage.style.top = (vh - h) / 2 + "px";
+  stage.style.setProperty("--u", (w / 100) + "px");
+  stageRatio = h / w;
+  rebuildPath();
+}
+
+(function readPictureSize() {
+  const img = new Image();
+  img.onload = () => { stageAspect = img.naturalWidth / img.naturalHeight; layoutStage(); };
+  img.src = "./Chapter1.png";
+})();
+window.addEventListener("resize", layoutStage);
+
+/* ---------- PATH MATHS ---------- */
+
+let cum = [0];
+let total = 0;
+let progress = 0;          // distance walked along the path
+let playerX = 35, playerY = 93;
+
+/* The dirt part of the route is smoothed into a gentle curve (Catmull-Rom)
+   so he does not turn in sharp corners. The steps stay straight.
+   RP = the points he really walks. RP_STEPS = where the steps begin in RP. */
+let RP = [];
+let RP_STEPS = 0;
+function buildRoute() {
+  const dirt = PATH.slice(0, STEPS_FROM + 1);
+  const P = i => dirt[Math.max(0, Math.min(dirt.length - 1, i))];
+  const out = [];
+  for (let i = 0; i < dirt.length - 1; i++) {
+    const p0 = P(i - 1), p1 = P(i), p2 = P(i + 1), p3 = P(i + 2);
+    for (let k = 0; k < 8; k++) {
+      const t = k / 8, t2 = t * t, t3 = t2 * t;
+      out.push([0, 1].map(c => 0.5 * ((2 * p1[c]) + (-p0[c] + p2[c]) * t +
+        (2 * p0[c] - 5 * p1[c] + 4 * p2[c] - p3[c]) * t2 +
+        (-p0[c] + 3 * p1[c] - 3 * p2[c] + p3[c]) * t3)));
+    }
+  }
+  out.push(dirt[dirt.length - 1].slice());
+  RP_STEPS = out.length - 1;
+  for (let i = STEPS_FROM + 1; i < PATH.length; i++) out.push(PATH[i].slice());
+  RP = out;
+}
+
+function rebuildPath() {
+  buildRoute();
+  cum = [0];
+  for (let i = 0; i < RP.length - 1; i++) {
+    const dx = RP[i + 1][0] - RP[i][0];
+    const dy = (RP[i + 1][1] - RP[i][1]) * stageRatio;
+    cum.push(cum[i] + Math.hypot(dx, dy));
+  }
+  total = cum[cum.length - 1];
+}
+
+function pointAt(p) {
+  p = Math.max(0, Math.min(total, p));
+  let i = 0;
+  while (i < RP.length - 2 && p > cum[i + 1]) i++;
+  const len = (cum[i + 1] - cum[i]) || 1;
+  const t = (p - cum[i]) / len;
+  const [x0, y0] = RP[i], [x1, y1] = RP[i + 1];
+  return { x: x0 + (x1 - x0) * t, y: y0 + (y1 - y0) * t, seg: i, dx: x1 - x0, dy: y1 - y0 };
+}
+
+function doorPoint() { return PATH[PATH.length - 1]; }
+
+/* Perspective: big at the start of the path, small at the door */
+function scaleAtY(y) {
+  const yStart = PATH[0][1], yEnd = doorPoint()[1];
+  const k = (y - yEnd) / ((yStart - yEnd) || 1);
+  return Math.max(0.5, 1 + k * (NEAR_SCALE - 1));
+}
+
+function updatePlayer() {
+  actor.style.left = playerX + "%";
+  actor.style.top = playerY + "%";
+  actor.style.setProperty("--s", scaleAtY(playerY).toFixed(3));
+}
+
+function placeDoor() {
+  const [x, y] = doorPoint();
+  doorHotspot.style.left = x + "%";
+  doorHotspot.style.top = y + "%";
+}
+
+/* Which way is he facing while moving along the current segment? */
+function facingFor(pt, forward) {
+  if (pt.seg >= RP_STEPS) {
+    /* Only side-view art exists, so on the steps he faces the way he is
+       actually travelling (no more walking up-left while facing right). */
+    const sx = forward ? pt.dx : -pt.dx;
+    if (Math.abs(sx) < 1) return (facing === "back" || facing === "front") ? "left" : facing;
+    return sx < 0 ? "left" : "right";
+  }
+  const sx = forward ? pt.dx : -pt.dx;
+  const sy = forward ? pt.dy : -pt.dy;
+  if (Math.abs(sx) > 1.6 * Math.abs(sy * stageRatio)) return sx >= 0 ? "right" : "left";
+  return sy < 0 ? "back" : "front";
+}
+
+/* ---------- CHARACTER ANIMATION ---------- */
+
+let facing = "right";     // right | left | back | front
+let moving = false;
+let frameIdx = 0;
+let sheetsReady = false;
+let spriteAR = 0.69;       // width / height of one frame (read from the sheet)
+
+function renderSprite() {
+  if (!sheetsReady) return;
+  const view = facing === "left" ? "right" : facing;
+  const src = SHEETS[moving ? "walk" : "idle"][view];
+  const pos = (frameIdx / (FRAME_COUNT - 1)) * 100;
+
+  sprites.forEach(el => {
+    if (el.dataset.src !== src) {
+      el.style.backgroundImage = 'url("' + src + '")';
+      el.dataset.src = src;
+    }
+    el.style.backgroundPosition = pos + "% 0";
+  });
+  actorBody.classList.toggle("flip", facing === "left");
+
+  /* While he walks (not hurrying backwards) show the animated GIF on top */
+  const gifOn = USE_GIF && moving && gifLoaded && walkRate <= 1.2;
+  walkGif.style.display = gifOn ? "block" : "none";
+  player.style.visibility = gifOn ? "hidden" : "visible";
+}
+
+function setMotion(isMoving, dir) {
+  if (dir) facing = dir;
+  if (isMoving !== moving) {
+    moving = isMoving;
+    stridePhase = 0.25;                       // start on the "passing" pose, then step out
+    frameIdx = isMoving ? 1 : 0;
+    lastStrideProgress = progress;
+    if (isMoving) restartGif();
+  }
+  renderSprite();
+}
+
+/* Frames follow the distance he has walked, so his feet stay planted at any
+   speed (fast, slow, easing in/out, or climbing the steps). */
+function manWidth() {
+  return parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--man-size")) || 4.6;
+}
+const REF_MAN_WIDTH = 7;   // size the walking speed was tuned for; smaller man = proportionally slower travel
+let stridePhase = 0, lastStrideProgress = 0;
+function strideAdvance() {
+  const d = Math.abs(progress - lastStrideProgress);
+  lastStrideProgress = progress;
+  if (!moving || !d) return;
+  const pt = pointAt(progress);
+  const sc = scaleAtY(pt.y);
+  const manW = manWidth();
+  const heightUnits = (manW / (spriteAR || .69)) * sc;      // his height, in path units
+  stridePhase = (stridePhase + d / (STRIDE_CYCLE * heightUnits)) % 1;
+  const idx = Math.floor(stridePhase * FRAME_COUNT) % FRAME_COUNT;
+  if (idx !== frameIdx) {
+    frameIdx = idx;
+    renderSprite();
+    /* a boot lands on frames 0 and 2 (the two stride poses) */
+    if (stepsOn && (idx === 0 || idx === 2)) {
+      playFootstep(pt.seg >= RP_STEPS, Math.max(.35, Math.min(1, sc / NEAR_SCALE + .2)));
+    }
+  }
+}
+
+let lastTick = 0;
+let walkRate = 1;        // 1 = the normal walk; >1 when he moves faster, <1 slower
+function animationTick(now) {
+  /* While he walks the path the frames are driven by distance (strideAdvance) */
+  if (moving && (mode === "auto" || mode === "control")) { requestAnimationFrame(animationTick); return; }
+  const interval = 1000 / (moving ? WALK_FPS * walkRate : IDLE_FPS);
+  if (now - lastTick >= interval) {
+    lastTick = now;
+    frameIdx = (frameIdx + 1) % FRAME_COUNT;
+    renderSprite();
+    /* a boot lands on frames 0 and 2 (the two stride poses) */
+    if (moving && stepsOn && (frameIdx === 0 || frameIdx === 2)) playFootstep();
+  }
+  requestAnimationFrame(animationTick);
+}
+
+function loadSheets() {
+  const files = [...new Set([...Object.values(SHEETS.walk), ...Object.values(SHEETS.idle)])];
+  let loaded = 0;
+  files.forEach(file => {
+    const img = new Image();
+    img.onload = () => {
+      if (loaded === 0) {
+        const ar = (img.naturalWidth / FRAME_COUNT) / img.naturalHeight;
+        spriteAR = ar;
+        sprites.forEach(el => el.style.setProperty("--ar", ar.toFixed(4)));
+      }
+      loaded++;
+      if (loaded === files.length) { sheetsReady = true; renderSprite(); }
+    };
+    img.onerror = () => console.warn("Missing character sheet: " + file + " (keep it next to index.html)");
+    img.src = file;
+  });
+}
+
+/* ---------- SCREENS + MUSIC ---------- */
+
+function showScreen(id) {
+  document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
+  document.getElementById(id).classList.add("active");
+
+  // Keep the coordinates footage limited to the coordinates narration.
+  const coordinatesVideo = document.getElementById("coordinatesVideo");
+  if (coordinatesVideo && id !== "prologueScreen") {
+    coordinatesVideo.pause();
+    coordinatesVideo.classList.remove("visible");
+    try { coordinatesVideo.currentTime = 0; } catch (e) {}
+  }
+
+  // Reset the boat clip whenever we leave its screen.
+  const boatVideo = document.getElementById("boatVideo");
+  if (boatVideo && id !== "prologueScreen") {
+    boatVideo.pause();
+    boatVideo.classList.remove("visible");
+    try { boatVideo.currentTime = 0; } catch (e) {}
+  }
+}
+
+async function toggleMusic() {
+  if (soundOn) {
+    music.pause();
+    soundOn = false;
+    soundButton.textContent = "♫ ENABLE SOUND";
+    return;
+  }
+  try {
+    music.volume = 0.7;
+    await music.play();
+    soundOn = true;
+    soundButton.textContent = "♫ SOUND ON";
+  } catch (err) {
+    soundButton.textContent = "AUDIO ERROR — CHECK FILE";
+    console.error(err);
+  }
+}
+
+/* ---------- PROLOGUE: the radio call at home, then the boat ---------- */
+
+function speak(text, o) {
+  o = o || {};
+  try {
+    if (!("speechSynthesis" in window)) return;
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = o.rate || .85; u.pitch = o.pitch || .6; u.volume = o.volume || .9;
+    window.speechSynthesis.speak(u);
+  } catch (e) { /* voice is optional */ }
+}
+function stopSpeaking() { try { window.speechSynthesis.cancel(); } catch (e) {} }
+
+let prologueToken = 0;
+async function startPrologue() {
+  const token = ++prologueToken;
+  showScreen("prologueScreen");
+  const coordinatesVideo = $("coordinatesVideo");
+  coordinatesVideo.pause();
+  coordinatesVideo.classList.remove("visible");
+  try { coordinatesVideo.currentTime = 0; } catch (e) {}
+  $("boatVideo").pause();
+  $("boatVideo").classList.remove("visible");
+  try { $("boatVideo").currentTime = 0; } catch (e) {}
+  $("txLines").innerHTML = "";
+  $("prologueButtons").style.display = "none";
+  $("prologuePanel").classList.remove("rocking");
+  $("prologueScreen").classList.remove("storm");
+  stopStatic(); startStatic(); setStaticLevel(0.4);
+
+  const lines = [
+    ["COORDINATES", "Latitude 11.38° N · Longitude 84.12° E — a tiny, dark island in the open ocean.", "Coordinates. Latitude eleven point three eight north. Longitude eighty four point one two east."],
+    ["DATE", "October 17, 1974.", "October seventeenth, nineteen seventy four."],
+    ["WARNING", "“The ninth signal was never meant to be heard.”", "The ninth signal was never meant to be heard."],
+    ["BENEATH THE VOICE", "Under the static, so faint you almost miss it: something like people, far away, crying out.", "..."]
+  ];
+  await sleep(1500);
+  for (const [label, text, say] of lines) {
+    if (token !== prologueToken) return;
+
+    // Play video.mp4 behind the scene while the voice reads the coordinates.
+    if (label === "COORDINATES") {
+      coordinatesVideo.classList.add("visible");
+      try {
+        coordinatesVideo.currentTime = 0;
+        const videoPlay = coordinatesVideo.play();
+        if (videoPlay && typeof videoPlay.catch === "function") videoPlay.catch(() => {});
+      } catch (e) {}
+    } else {
+      coordinatesVideo.pause();
+      coordinatesVideo.classList.remove("visible");
+    }
+
+    const d = document.createElement("p");
+    d.className = "tx";
+    d.innerHTML = "<span>" + label + "</span>" + text;
+    $("txLines").appendChild(d);
+    // The coordinates clip has its own audio; keep it playing/visible for the full 9 seconds.
+    if (label === "COORDINATES") {
+      await sleep(9000);
+    } else {
+      speak(say);
+      await sleep(4200);
+    }
+  }
+  if (token !== prologueToken) return;
+  coordinatesVideo.pause();
+  coordinatesVideo.classList.remove("visible");
+  const d = document.createElement("p");
+  d.className = "tx";
+  d.innerHTML = "<i>The message begins again. The kettle screams on the stove and you do not hear it. Rain hammers the window, and the old radio, unplugged since your grandfather died, keeps talking. You grab your coat. Whatever is out there, you have to know.</i>";
+  $("txLines").appendChild(d);
+  $("prologueButtons").style.display = "flex";
+}
+
+async function sail() {
+  const token = ++prologueToken;
+  stopSpeaking();
+  $("prologueButtons").style.display = "none";
+  $("txLines").innerHTML = '<p class="tx">You cast off into the stormy night. Waves slam against the little boat, and far ahead, through the rain, a black shape rises out of the sea…</p>';
+  $("prologueScreen").classList.add("storm");
+  $("prologuePanel").classList.add("rocking");
+  setStaticLevel(0.75);
+
+  // Boat video plays behind this page (with its own audio).
+  const boatVideo = $("boatVideo");
+  const musicWasOn = soundOn;
+  if (musicWasOn) music.volume = 0.12;
+  const videoDone = new Promise(resolve => {
+    let done = false;
+    const finish = () => { if (!done) { done = true; resolve(); } };
+    boatVideo.onended = finish;
+    boatVideo.onerror = finish;
+    setTimeout(finish, 15000);           // safety net
+    boatVideo.classList.add("visible");
+    try {
+      boatVideo.currentTime = 0;
+      const p = boatVideo.play();
+      if (p && typeof p.catch === "function") p.catch(finish);
+    } catch (e) { finish(); }
+  });
+
+  thunder();
+  await sleep(2600);
+  thunder();
+  await sleep(2800);
+  await videoDone;                       // wait for the clip if it is still playing
+  if (token !== prologueToken) return;
+  if (musicWasOn) music.volume = 0.7;
+  stopStatic();
+  showScreen("arrivalScreen");
+}
+
+function thunder() {
+  const ctx = getAudio(); if (!ctx) return;
+  noiseBurst(ctx.currentTime, 2.2, 160, .5, "lowpass");
+}
+
+/* ---------- START THE WALK ---------- */
+
+async function beginChapter() {
+  if (!soundOn) {
+    try {
+      music.volume = 0.7;
+      await music.play();
+      soundOn = true;
+      soundButton.textContent = "♫ SOUND ON";
+    } catch (err) {
+      console.warn("Music playback was blocked or the file is missing.", err);
+    }
+  }
+  showScreen("walkScreen");
+  layoutStage();
+  startWalk();
+}
+
+function startWalk() {
+  mode = "auto";
+  transitionBusy = false;
+  keys = {};
+  progress = 0;
+  stridePhase = 0.25; lastStrideProgress = 0; frameIdx = 1;
+
+  actor.classList.remove("entering");
+  doorHotspot.classList.remove("opening");
+  placeDoor();
+
+  const pt = pointAt(0);
+  playerX = pt.x; playerY = pt.y;
+  updatePlayer();
+  setMotion(true, facingFor(pt, true));
+  stopFootsteps();
+  startFootsteps();
+
+  /* fade him in at the start of the path */
+  actor.style.transition = "none";
+  actor.style.opacity = 0;
+  void actor.offsetWidth;
+  actor.style.transition = "opacity .9s ease";
+  actor.style.opacity = 1;
+  setTimeout(() => { actor.style.transition = ""; actor.style.opacity = ""; }, 1000);
+
+  walkMessage.textContent = "You follow the path toward the observatory...";
+  walkHint.textContent = "APPROACHING THE STEPS";
+  doorPrompt.style.display = "none";
+
+  lastFrame = performance.now();
+  if (!loopRunning) { loopRunning = true; requestAnimationFrame(gameLoop); }
+}
+
+function gameLoop(timestamp) {
+  if (mode !== "auto" && mode !== "control") { loopRunning = false; return; }
+
+  const dt = Math.min((timestamp - lastFrame) / 16.67, 2);
+  lastFrame = timestamp;
+
+  let pt = pointAt(progress);
+  const stepFactor = pt.seg >= RP_STEPS ? 0.55 : 1;   // slower on the steps
+  const pauseAt = cum[Math.min(RP_STEPS, cum.length - 1)];
+
+  if (mode === "auto") {
+    /* He walks the dirt path and stops at the bottom of the steps */
+    walkRate = stepFactor;
+    /* ease in at the start and ease out as he reaches the steps */
+    const ease = Math.max(.35, Math.min(1, progress / (pauseAt * .10), (pauseAt - progress) / (pauseAt * .14)));
+    progress += .075 * WALK_PACE * (manWidth() / REF_MAN_WIDTH) * dt * stepFactor * ease * scaleAtY(pt.y) * PERSPECTIVE_SPEED;
+    if (progress >= pauseAt) {
+      progress = pauseAt;
+      mode = "control";
+      stopFootsteps();
+      pt = pointAt(progress);
+      setMotion(false, facingFor(pt, true));
+      walkMessage.textContent = "The old stone steps lead up to the entrance.";
+      walkHint.textContent = "HOLD W OR D TO CLIMB THE STEPS · S OR A TO STEP BACK";
+    } else {
+      pt = pointAt(progress);
+      setMotion(true, facingFor(pt, true));
+    }
+  } else {
+    const fwd  = keys.w || keys.d || keys.arrowup   || keys.arrowright;
+    const back = keys.s || keys.a || keys.arrowdown || keys.arrowleft;
+    const speed = .15 * (manWidth() / REF_MAN_WIDTH) * dt * stepFactor * scaleAtY(pt.y) * PERSPECTIVE_SPEED;
+    walkRate = 2 * stepFactor;   // moving twice as fast = twice the cadence, same stride
+
+    if (fwd && !back)      progress += speed;
+    else if (back && !fwd) progress -= speed;
+    progress = Math.max(0, Math.min(total, progress));
+    pt = pointAt(progress);
+
+    const isMoving = (fwd !== back) && !(progress >= total && fwd) && !(progress <= 0 && back);
+    setMotion(isMoving, isMoving ? facingFor(pt, !!fwd) : null);
+    if (isMoving) startFootsteps(); else stopFootsteps();
+
+    const atDoor = progress >= total - 0.6;
+    doorPrompt.style.display = atDoor ? "block" : "none";
+    if (atDoor) {
+      walkMessage.textContent = "You stand in front of the observatory door.";
+      walkHint.textContent = "PRESS E OR CLICK THE DOOR";
+    } else if (pt.seg >= RP_STEPS) {
+      walkMessage.textContent = "You climb the worn stone steps.";
+      walkHint.textContent = "HOLD W OR D TO KEEP CLIMBING";
+    }
+  }
+
+  strideAdvance();
+  playerX = pt.x;
+  playerY = pt.y;
+  updatePlayer();
+
+  requestAnimationFrame(gameLoop);
+}
+
+/* ---------- SOUND ---------- */
+
+function getAudio() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return null;
+  if (!audioContext) audioContext = new AC();
+  if (audioContext.state === "suspended") audioContext.resume();
+  return audioContext;
+}
+
+function makeCreak() {
+  try {
+    const ctx = getAudio();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(170, now);
+    osc.frequency.exponentialRampToValueAtTime(48, now + 2.5);
+    filter.type = "lowpass";
+    filter.frequency.value = 450;
+    gain.gain.setValueAtTime(.001, now);
+    gain.gain.linearRampToValueAtTime(.06, now + .3);
+    gain.gain.linearRampToValueAtTime(.001, now + 2.6);
+    osc.connect(filter); filter.connect(gain); gain.connect(ctx.destination);
+    osc.start(now); osc.stop(now + 2.7);
+  } catch (err) { console.warn("Could not play door sound.", err); }
+}
+
+/* Footsteps are played by animationTick, exactly when a boot lands. */
+let stepsOn = false;
+let stepFoot = 0;
+function playFootstep(onStone, level) {
+  try {
+    const ctx = getAudio();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    level = (level == null) ? 1 : level;
+    stepFoot ^= 1;
+    const vary = .92 + Math.random() * .16;
+
+    const out = ctx.createGain();
+    out.gain.value = level;
+    if (ctx.createStereoPanner) {
+      const pan = ctx.createStereoPanner();
+      pan.pan.value = stepFoot ? .12 : -.12;
+      out.connect(pan); pan.connect(ctx.destination);
+    } else out.connect(ctx.destination);
+
+    /* body of the step */
+    const osc = ctx.createOscillator(), gain = ctx.createGain(), filter = ctx.createBiquadFilter();
+    osc.type = "triangle";
+    osc.frequency.setValueAtTime((onStone ? 190 : 95) * vary, now);
+    osc.frequency.exponentialRampToValueAtTime(onStone ? 70 : 40, now + (onStone ? .08 : .1));
+    filter.type = "lowpass"; filter.frequency.value = onStone ? 700 : 260;
+    const peak = onStone ? .045 : .05, len = onStone ? .1 : .14;
+    gain.gain.setValueAtTime(peak, now);
+    gain.gain.exponentialRampToValueAtTime(.0005, now + len);
+    osc.connect(filter); filter.connect(gain); gain.connect(out);
+    osc.start(now); osc.stop(now + len + .02);
+
+    /* texture: a soft gravel crunch on the dirt, a sharp tap on the stone */
+    const src = ctx.createBufferSource(); src.buffer = getNoise(ctx);
+    const nf = ctx.createBiquadFilter(), ng = ctx.createGain();
+    nf.type = onStone ? "highpass" : "bandpass";
+    nf.frequency.value = onStone ? 2600 : 1700 * vary;
+    if (!onStone) nf.Q.value = .8;
+    const nlen = onStone ? .05 : .12;
+    ng.gain.setValueAtTime(onStone ? .03 : .04, now);
+    ng.gain.exponentialRampToValueAtTime(.0005, now + nlen);
+    src.connect(nf); nf.connect(ng); ng.connect(out);
+    src.start(now); src.stop(now + nlen + .02);
+  } catch (err) { /* ignore */ }
+}
+function startFootsteps() { stepsOn = true; }
+function stopFootsteps()  { stepsOn = false; }
+
+/* Shared noise helper (thunder, boots, paper, static bursts) */
+let noiseBuf = null;
+function getNoise(ctx) {
+  if (!noiseBuf) {
+    noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+    const d = noiseBuf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+  return noiseBuf;
+}
+function noiseBurst(t, dur, freq, vol, type) {
+  const ctx = getAudio(); if (!ctx) return;
+  const s = ctx.createBufferSource(); s.buffer = getNoise(ctx); s.loop = true;
+  const f = ctx.createBiquadFilter(); f.type = type || "bandpass"; f.frequency.value = freq;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(.0001, t);
+  g.gain.linearRampToValueAtTime(vol, t + dur * .15);
+  g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+  s.connect(f); f.connect(g); g.connect(ctx.destination);
+  s.start(t); s.stop(t + dur + .05);
+}
+function chime() {
+  const ctx = getAudio(); if (!ctx) return; const t = ctx.currentTime;
+  [880, 1320].forEach((f, i) => {
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = "sine"; o.frequency.value = f;
+    g.gain.setValueAtTime(.0001, t + i * .12); g.gain.linearRampToValueAtTime(.12, t + i * .12 + .03);
+    g.gain.exponentialRampToValueAtTime(.0001, t + i * .12 + .7);
+    o.connect(g); g.connect(ctx.destination); o.start(t + i * .12); o.stop(t + i * .12 + .75);
+  });
+}
+
+/* ---------- OPEN THE DOOR ---------- */
+
+function openDoor() {
+  if (mode !== "control" || transitionBusy) return;
+
+  if (progress < total - 0.6) {
+    walkMessage.textContent = "Walk up to the entrance first.";
+    return;
+  }
+
+  if (!lockSolved) { showLock(); return; }
+  transitionBusy = true;
+  mode = "opening";
+  keys = {};
+  doorPrompt.style.display = "none";
+
+  walkMessage.textContent = "The hinges groan in the silence...";
+  walkHint.textContent = "THE DOOR IS OPENING";
+
+  doorCreak(2.6);
+  doorHotspot.classList.add("opening");        /* warm light spills out */
+
+  /* He steps forward into the doorway, shrinking and fading */
+  const [dx, dy] = doorPoint();
+  walkRate = 1;
+  setMotion(true, (facing === "back" || facing === "front") ? "left" : facing);
+  stopFootsteps();
+  startFootsteps();
+  actor.classList.add("entering");
+  actor.style.setProperty("--s", (scaleAtY(dy) * 0.85).toFixed(3));
+  actor.style.left = dx + "%";
+  actor.style.top = (dy - 1.2) + "%";
+
+  setTimeout(() => {
+    stopFootsteps();
+    showScreen("interiorScreen");
+
+    if (SHOW_INSIDE_MAN) {
+      insidePlayer.classList.add("visible");
+      setTimeout(() => setMotion(false, "back"), 2500);
+    } else {
+      setMotion(false, "back");
+    }
+
+    interiorScreen.classList.remove("entering");
+    void interiorScreen.offsetWidth;
+    interiorScreen.classList.add("entering");
+
+    setTimeout(() => {
+      showScreen("clueScreen");
+      mode = "clues";
+      transitionBusy = false;
+    }, 2800);
+  }, 2200);
+}
+
+/* ---------- KEYS ---------- */
+
+window.addEventListener("keydown", event => {
+  const tag = event.target && event.target.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA") return;
+
+  const key = event.key.toLowerCase();
+
+  if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(key)) {
+    event.preventDefault();
+  }
+
+  if (key === "t" && !event.repeat) {
+    const open = document.getElementById("tuner").classList.toggle("show");
+    document.body.classList.toggle("tuning", open);
+    return;
+  }
+
+  if (key === "p" && !event.repeat) {
+    const open = document.getElementById("pathEditor").classList.toggle("show");
+    document.body.classList.toggle("editing", open);
+    if (open) renderPath();
+    return;
+  }
+
+  if (key === "e" && !event.repeat) openDoor();
+  keys[key] = true;
+});
+
+window.addEventListener("keyup", event => { keys[event.key.toLowerCase()] = false; });
+window.addEventListener("blur", () => { keys = {}; });
+
+/* ---------- GENERATOR ---------- */
+
+let powerOn = false;
+function generatorSound() {
+  const ctx = getAudio(); if (!ctx) return; const t = ctx.currentTime;
+  const o = ctx.createOscillator(), g = ctx.createGain(), f = ctx.createBiquadFilter();
+  o.type = "sawtooth"; f.type = "lowpass"; f.frequency.value = 240;
+  o.frequency.setValueAtTime(18, t);
+  o.frequency.exponentialRampToValueAtTime(55, t + 1.6);
+  g.gain.setValueAtTime(.0001, t);
+  g.gain.linearRampToValueAtTime(.2, t + .4);
+  g.gain.setValueAtTime(.2, t + .6); g.gain.linearRampToValueAtTime(.08, t + .75);
+  g.gain.linearRampToValueAtTime(.2, t + .95); g.gain.linearRampToValueAtTime(.07, t + 1.15);
+  g.gain.linearRampToValueAtTime(.16, t + 1.6);
+  g.gain.exponentialRampToValueAtTime(.04, t + 6);
+  o.connect(f); f.connect(g); g.connect(ctx.destination);
+  o.start(t); o.stop(t + 6.2);
+}
+function startGenerator() {
+  if (powerOn) return;
+  powerOn = true;
+  generatorSound();
+  $("genBtn").style.display = "none";
+  $("darkness").classList.add("flicker");
+  $("clueText").textContent = "The generator coughs, sputters, and catches. Bulbs stutter on one by one. A kettle on the shelf is still half full, its water gone to a brown crust. Someone left in a hurry. ";
+  setInterval(() => { const c = getAudio(); if (c && mode !== 'end') noiseBurst(c.currentTime, .05, 4200, .08, 'bandpass'); }, 4300 + Math.random() * 2000);   /* a slow drip somewhere */
+  setTimeout(() => {
+    document.querySelectorAll(".clueBtn").forEach(b => b.disabled = false);
+    $("clueIntro").textContent = "Light floods the room. You can finally see: an old radio receiver, a large telescope locked in place, a star chart with a spiral drawn on it, and a scientist's journal left open on a desk. Choose an object to investigate.";
+    $("clueText").textContent = "Select an object to investigate.";
+  }, 1300);
+}
+
+/* ---------- CLUES ---------- */
+
+const clues = {
+  journal: {
+    title: "Research Journal",
+    text: "Signals 1 to 8 are logged in careful handwriting. The final entry, dated October 17, 1974, ends mid-sentence: “We calculated Signal 9 tonight. It isn't coming from space. It's coming from right inside this room…”"
+  },
+  chart: {
+    title: "Star Chart",
+    text: "A spiral constellation is drawn on the chart for October 17, with its position written beside it in the margin."
+  },
+  telescope: {
+    title: "Telescope",
+    text: "The telescope is locked onto its mount and can be turned with two dials. A small counter on its side is blank."
+  },
+  receiver: {
+    title: "Radio Receiver",
+    text: "Amber lights flicker across the old dial. It rests on 108 MHz, the emergency channel that brought you here. Somewhere on this dial, Signal 9 is waiting."
+  },
+  desk: {
+    title: "Abandoned Desk",
+    text: "A photograph of the missing team lies beside a note: “Find the receiver. Do not transmit until you understand what happened.” Pressed into the paper beneath it, as if written in panic: “WHOEVER SPEAKS INTO IT IS TAKEN.”"
+  }
+};
+
+function inspectClue(name) {
+  const clue = clues[name];
+  document.getElementById("clueText").innerHTML =
+    "<strong>" + clue.title + "</strong><br><br>" + clue.text;
+
+  discovered.add(name);
+  if (name === "receiver") openReceiver(); else showObject(name);
+  if (name === "telescope") addJournal("Telescope", "Two dials, azimuth and altitude, and a blank counter on the side. It must be pointed at the right part of the sky.");
+  if (name === "chart") addJournal("Star chart", "The signals only appear when certain stars line up overhead. On October 17, 1974 the spiral sits at azimuth 140°, altitude 55°.");
+  if (name === "journal") addJournal("Last entry", "“We calculated Signal 9 tonight. It isn't coming from space. It's coming from right inside this room…” The diary stops there.");
+  if (name === "desk") addJournal("The envelope note", "Find the receiver. Do not transmit until you understand what happened. Pressed into the paper underneath: WHOEVER SPEAKS INTO IT IS TAKEN.");
+  document.getElementById("clueCount").textContent =
+    "Clues discovered: " + discovered.size + " / 5";
+
+  if (discovered.size === 5) {
+    document.getElementById("clueText").innerHTML +=
+      "<br><br><strong>All clues found. Signal 9 is waiting on the receiver.</strong>";
+  }
+}
+
+/* ---------- PATH EDITOR (press P) ---------- */
+
+const pathDots = document.getElementById("pathDots");
+const pathLine = document.getElementById("pathLine");
+const pathOutput = document.getElementById("pathOutput");
+const stepsFromInput = document.getElementById("stepsFromInput");
+
+function renderPath() {
+  pathLine.setAttribute("points", PATH.map(p => p[0] + "," + p[1]).join(" "));
+  pathDots.innerHTML = "";
+  PATH.forEach((p, i) => {
+    const dot = document.createElement("div");
+    dot.className = "pathDot" + (i >= STEPS_FROM ? " steps" : "");
+    dot.textContent = i + 1;
+    dot.style.left = p[0] + "%";
+    dot.style.top = p[1] + "%";
+    dot.addEventListener("pointerdown", e => startDrag(e, i));
+    pathDots.appendChild(dot);
+  });
+  stepsFromInput.value = STEPS_FROM + 1;
+  rebuildPath();
+  placeDoor();
+  pathOutput.value =
+"let PATH = [\n" + PATH.map(p => "  [" + p[0] + ", " + p[1] + "]").join(",\n") + "\n];\n" +
+"let STEPS_FROM = " + STEPS_FROM + ";   // steps begin at point #" + (STEPS_FROM + 1);
+}
+
+function eventToPercent(e) {
+  const r = stage.getBoundingClientRect();
+  const x = Math.max(0, Math.min(100, (e.clientX - r.left) / r.width * 100));
+  const y = Math.max(0, Math.min(100, (e.clientY - r.top) / r.height * 100));
+  return [Math.round(x * 10) / 10, Math.round(y * 10) / 10];
+}
+
+let dragIndex = -1;
+function startDrag(e, i) {
+  e.preventDefault();
+  e.stopPropagation();
+  dragIndex = i;
+}
+window.addEventListener("pointermove", e => {
+  if (dragIndex < 0) return;
+  PATH[dragIndex] = eventToPercent(e);
+  renderPath();
+});
+window.addEventListener("pointerup", () => { dragIndex = -1; });
+
+stage.addEventListener("click", e => {
+  if (!document.body.classList.contains("editing")) return;
+  if (e.target.classList.contains("pathDot")) return;
+  PATH.push(eventToPercent(e));
+  renderPath();
+});
+
+function undoPoint() { if (PATH.length > 2) { PATH.pop(); STEPS_FROM = Math.min(STEPS_FROM, PATH.length - 2); renderPath(); } }
+function clearPoints() { PATH = []; PATH.push([50, 90], [50, 80]); STEPS_FROM = 1; renderPath(); }
+
+stepsFromInput.addEventListener("input", () => {
+  const v = parseInt(stepsFromInput.value, 10);
+  if (!isNaN(v)) { STEPS_FROM = Math.max(1, Math.min(PATH.length - 1, v)) - 1; renderPath(); }
+});
+
+/* ---------- TUNER (press T) ---------- */
+
+const tunerSettings = [
+  { id: "man-bright",   label: "Brightness",             min: .3, max: 1.4, step: .01, value: 1 },
+  { id: "man-contrast", label: "Contrast",               min: .7, max: 1.6, step: .01, value: 1.04 },
+  { id: "man-sat",      label: "Colour (saturation)",    min: 0,  max: 1.5, step: .01, value: .95 },
+  { id: "man-sepia",    label: "Warmth (sepia)",         min: 0,  max: .6,  step: .01, value: 0 },
+  { id: "man-size",     label: "Size at the door",       min: 1,  max: 8,   step: .1,  value: 4.6 },
+  { id: "near-scale",   label: "Bigger when near (x)",   min: 1,  max: 4,   step: .05, value: 2.2 },
+  { id: "man-feet",     label: "Feet height (up / down)", min: -30, max: 30, step: 1, value: 0 }
+];
+
+function updateTunerOutput() {
+  const v = id => document.getElementById("t-" + id).value;
+  document.getElementById("tunerOutput").value =
+`/* inside :root in the CSS */
+--man-bright: ${v("man-bright")};
+--man-contrast: ${v("man-contrast")};
+--man-sat: ${v("man-sat")};
+--man-sepia: ${v("man-sepia")};
+--man-size: ${v("man-size")};
+--man-feet: ${v("man-feet")};
+
+/* in the script */
+let NEAR_SCALE = ${v("near-scale")};`;
+}
+
+(function buildTuner() {
+  const box = document.getElementById("tunerControls");
+  tunerSettings.forEach(s => {
+    const label = document.createElement("label");
+    label.textContent = s.label;
+    const input = document.createElement("input");
+    input.type = "range";
+    input.id = "t-" + s.id;
+    input.min = s.min; input.max = s.max; input.step = s.step; input.value = s.value;
+    input.addEventListener("input", () => {
+      if (s.id === "near-scale") NEAR_SCALE = parseFloat(input.value);
+      else document.documentElement.style.setProperty("--" + s.id, input.value);
+      updatePlayer();
+      updateTunerOutput();
+    });
+    box.appendChild(label);
+    box.appendChild(input);
+  });
+  updateTunerOutput();
+})();
+
+
+/* ============ LOCK PUZZLE ============ */
+let lockSolved = false, lockInput = [], lockPrevMode = "control";
+
+/* ---- star chart decoration ---- */
+(function buildChart() {
+  const ticks = document.getElementById("chartTicks"), stars = document.getElementById("chartStars"), NS = "http://www.w3.org/2000/svg";
+  let seed = 42; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  for (let a = 0; a < 360; a += 5) {
+    const r = a % 30 === 0 ? 100 : 105, rad = a * Math.PI / 180, l = document.createElementNS(NS, "line");
+    l.setAttribute("x1", Math.sin(rad) * r); l.setAttribute("y1", -Math.cos(rad) * r);
+    l.setAttribute("x2", Math.sin(rad) * 110); l.setAttribute("y2", -Math.cos(rad) * 110);
+    ticks.appendChild(l);
+  }
+  for (let i = 0; i < 34; i++) {
+    const a = rnd() * 6.283, r = Math.sqrt(rnd()) * 100, c = document.createElementNS(NS, "circle");
+    c.setAttribute("cx", Math.cos(a) * r); c.setAttribute("cy", Math.sin(a) * r);
+    c.setAttribute("r", (0.8 + rnd() * 1.6).toFixed(1)); c.setAttribute("class", "inkFill");
+    stars.appendChild(c);
+  }
+})();
+
+/* ---- unlock sound: metal clunk + door creak ---- */
+let lockCreaked = false;
+function unlockSound() {
+  const ctx = getAudio();
+  if (ctx) {
+    const t = ctx.currentTime;
+    [[190, 55, .22, "square", .18], [2400, 1200, .04, "triangle", .12]].forEach(([f0, f1, dur, type, vol]) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+      g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+      o.connect(g); g.connect(ctx.destination); o.start(t); o.stop(t + dur + .02);
+    });
+  }
+  setTimeout(() => doorCreak(0.9), 250);
+}
+function doorCreak(dur) {
+  const ctx = getAudio(); if (!ctx) return; const t = ctx.currentTime;
+  const mix = ctx.createGain(), bp = ctx.createBiquadFilter();
+  bp.type = "bandpass"; bp.frequency.value = 900; bp.Q.value = 7;
+  mix.gain.setValueAtTime(0.001, t); mix.gain.linearRampToValueAtTime(.2, t + .15);
+  mix.gain.setValueAtTime(.2, t + dur * .7); mix.gain.linearRampToValueAtTime(0.001, t + dur);
+  bp.connect(mix); mix.connect(ctx.destination);
+  [1, 1.51].forEach(m => {
+    const o = ctx.createOscillator(); o.type = "sawtooth";
+    o.frequency.setValueAtTime(110 * m, t);
+    for (let x = .1; x < dur; x += .09 + Math.random() * .1) o.frequency.linearRampToValueAtTime((70 + Math.random() * 190) * m, t + x);
+    o.connect(bp); o.start(t); o.stop(t + dur + .05);
+  });
+}
+const LOCK_CODE = ["☾", "★", "🌀"];
+const $ = id => document.getElementById(id);
+function showLock() { lockPrevMode = mode; mode = "lock"; keys = {}; resetLock(); $("lockOverlay").classList.add("show"); }
+function closeLock() { $("lockOverlay").classList.remove("show"); mode = "control"; }
+const LOCK_POOL = ["☾", "★", "🌀", "☀", "☄", "👁"];
+let wrongCount = 0, lockedUntil = 0;
+function resetLock() {
+  lockInput = []; $("lockSlots").textContent = "_ _ _"; $("lockMsg").textContent = "";
+  const row = $("symRow"); row.innerHTML = "";
+  LOCK_POOL.slice().sort(() => Math.random() - 0.5).forEach(sym => {
+    const b = document.createElement("button"); b.textContent = sym; b.onclick = () => pressSym(sym); row.appendChild(b);
+  });
+}
+function lockBuzz() {
+  const ctx = getAudio(); if (!ctx) return; const t = ctx.currentTime;
+  const o = ctx.createOscillator(), g = ctx.createGain(); o.type = "sawtooth"; o.frequency.value = 95;
+  g.gain.setValueAtTime(.15, t); g.gain.exponentialRampToValueAtTime(.001, t + .5);
+  o.connect(g); g.connect(ctx.destination); o.start(t); o.stop(t + .55);
+}
+function pressSym(sym) {
+  if (Date.now() < lockedUntil || lockInput.length >= 3) return;
+  lockInput.push(sym);
+  $("lockSlots").textContent = lockInput.concat(["_", "_", "_"]).slice(0, 3).join(" ");
+  if (lockInput.length < 3) return;
+  if (lockInput.every((v, i) => v === LOCK_CODE[i])) {
+    lockSolved = true; unlockSound();
+    $("lockMsg").textContent = "CLICK — the lock releases.";
+    setTimeout(() => { $("lockOverlay").classList.remove("show"); mode = "control"; openDoor(); }, 1100);
+    return;
+  }
+  wrongCount++; lockBuzz();
+  if (wrongCount % 3 === 0) {
+    lockedUntil = Date.now() + 8000;
+    const tick = () => {
+      const left = Math.ceil((lockedUntil - Date.now()) / 1000);
+      if (left > 0) { $("lockMsg").textContent = "JAMMED — wait " + left + "s. Study the chart."; setTimeout(tick, 250); }
+      else resetLock();
+    };
+    tick();
+  } else {
+    $("lockMsg").textContent = "Wrong order. " + (3 - wrongCount % 3) + " tries before it jams.";
+    setTimeout(resetLock, 1200);
+  }
+}
+
+/* ============ JOURNAL ============ */
+const journal = [];
+function addJournal(title, text) {
+  if (journal.some(j => j.title === title)) return;
+  journal.push({ title, text });
+  renderJournal();
+}
+function renderJournal() {
+  $("journalList").innerHTML = journal.length
+    ? journal.map(j => "<div><strong>" + j.title + "</strong><br>" + j.text + "</div>").join("")
+    : "<p>No entries yet.</p>";
+}
+function toggleJournal() { renderJournal(); $("journalOverlay").classList.toggle("show"); }
+
+/* ============ RADIO RECEIVER ============ */
+let f10 = 1080, fineUnlocked = false, rxOpen = false, rxMuted = false, rxNodes = null;
+const FRAGMENTS = {
+  910: "Static and faint interference…",
+  940: "…a half-heard conversation: “…check the dish again, it’s drifting…”",
+  960: "A repeating pulse. Something is nearby. Scan upward.",
+  1010: "Log fragment: “Day 41. The readings do not match the calendar.”",
+  1040: "A distant, distorted broadcast, too warped to understand.",
+  1080: "The emergency channel. An automated voice loops: coordinates, a date, “October 17, 1974”, and a warning: “The ninth signal was never meant to be heard.”"
+};
+function strength(f) {
+  const g = (x, w) => Math.exp(-Math.pow((f - x) / w, 2));
+  return Math.min(1, 0.12 + 0.2 * g(960, 6) + 0.38 * g(970, 25) + 0.55 * g(973, 1.2) + 0.3 * g(1080, 3));
+}
+function openReceiver() {
+  rxOpen = true; mode = "radio"; keys = {};
+  $("rxOverlay").classList.add("show");
+  startStatic(); updateRx();
+}
+function closeReceiver() { rxOpen = false; stopStatic(); $("rxOverlay").classList.remove("show"); mode = "clues"; }
+function toggleStatic() { rxMuted = !rxMuted; $("rxPower").textContent = rxMuted ? "UNMUTE" : "MUTE"; updateRx(); }
+function tune(dir, kind) {
+  const step = kind === "main" ? 10 : kind === "fine" ? (fineUnlocked ? 1 : 0) : (fineUnlocked ? 1 : 10);
+  if (!step) { $("rxStatus").textContent = "The fine knob is stiff. Find a promising signal first."; return; }
+  f10 = Math.max(880, Math.min(1080, f10 + dir * step));
+  if (!fineUnlocked && f10 === 970) {
+    fineUnlocked = true;
+    $("rxStatus").textContent = "Promising signal at 97 MHz. FINE TUNING UNLOCKED (0.1 steps).";
+  }
+  if (fineUnlocked && (f10 < 960 || f10 > 985)) fineUnlocked = false;   /* wandered off: back to coarse */
+  updateRx();
+}
+function updateRx() {
+  syncDigital();
+  const st = strength(f10);
+  $("freq").textContent = (f10 / 10).toFixed(1);
+  $("meterFill").style.width = Math.round(st * 100) + "%";
+  $("rxStep").textContent = fineUnlocked ? "0.1 MHz (fine)" : "1 MHz";
+  const frag = FRAGMENTS[f10 - (f10 % 10)] && f10 % 10 === 0 ? FRAGMENTS[f10] : null;
+  const box = $("rxText");
+  $("listenBtn").classList.toggle("glow", f10 === 973);
+  if (f10 === 973) {
+    box.textContent = "A clean, steady tone. Something is waiting on this frequency. Press LISTEN.";
+    $("rxStatus").textContent = "SIGNAL LOCKED · 97.3 MHz · PRESS LISTEN";
+  } else if (frag) { box.textContent = frag; $("rxStatus").textContent = "Signal strength " + Math.round(st * 100) + "%"; }
+  else if (fineUnlocked) { box.textContent = st > 0.7 ? "The tone is almost clean… keep nudging." : "Interference crackles. Nudge the fine knob."; $("rxStatus").textContent = "Signal strength " + Math.round(st * 100) + "%"; }
+  else { box.textContent = "Static."; $("rxStatus").textContent = "Signal strength " + Math.round(st * 100) + "%"; }
+  setStaticLevel(st); radioVisual(st);
+}
+function startStatic() {
+  const ctx = getAudio(); if (!ctx || rxNodes) return;
+  const len = ctx.sampleRate * 2, buf = ctx.createBuffer(1, len, ctx.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  const noise = ctx.createBufferSource(); noise.buffer = buf; noise.loop = true;
+  const nGain = ctx.createGain(), filt = ctx.createBiquadFilter(); filt.type = "bandpass"; filt.frequency.value = 2200;
+  const osc = ctx.createOscillator(); osc.frequency.value = 660;
+  const oGain = ctx.createGain(), lfo = ctx.createOscillator(), lfoG = ctx.createGain();
+  lfo.frequency.value = 2; lfoG.gain.value = 0.5; oGain.gain.value = 0;
+  lfo.connect(lfoG); lfoG.connect(oGain.gain); osc.connect(oGain);
+  noise.connect(filt); filt.connect(nGain); nGain.connect(ctx.destination); oGain.connect(ctx.destination);
+  noise.start(); osc.start(); lfo.start();
+  rxNodes = { noise, osc, lfo, nGain, oGain, ctx };
+}
+function setStaticLevel(st) {
+  if (!rxNodes) return;
+  const t = rxNodes.ctx.currentTime, on = rxMuted ? 0 : 1;
+  rxNodes.nGain.gain.setTargetAtTime(on * 0.12 * (1.05 - st), t, 0.05);
+  rxNodes.oGain.gain.setTargetAtTime(on * (st > 0.3 ? 0.06 * st : 0), t, 0.05);
+}
+function stopStatic() {
+  if (!rxNodes) return;
+  try { rxNodes.noise.stop(); rxNodes.osc.stop(); rxNodes.lfo.stop(); } catch (e) {}
+  rxNodes = null;
+}
+
+/* ---- digital tuner: free 0.1 MHz steps, no fine-knob gate ---- */
+function setFreq(v) {
+  f10 = Math.max(880, Math.min(1080, Math.round(v)));
+  fineUnlocked = f10 >= 960 && f10 <= 985;
+  if (f10 === 970) $("rxStatus").textContent = "Promising signal at 97 MHz. Nudge by 0.1.";
+  updateRx();
+}
+function nudge(d) { setFreq(f10 + d); }
+function syncDigital() {
+  const n = $("dNum"), sl = $("dSlider");
+  if (document.activeElement !== n) n.value = (f10 / 10).toFixed(1);
+  sl.value = f10;
+}
+$("dSlider").addEventListener("input", e => setFreq(+e.target.value));
+$("dNum").addEventListener("change", e => { const v = parseFloat(e.target.value); if (!isNaN(v)) setFreq(v * 10); });
+$("dNum").addEventListener("keydown", e => { if (e.key === "Enter") e.target.blur(); });
+
+/* ============ EXTRA KEYS ============ */
+window.addEventListener("keydown", e => {
+  const k = e.key.toLowerCase();
+  if (k === "j" && !e.repeat && !["title", "twist", "choice", "end"].includes(mode)) { toggleJournal(); return; }
+  if (k === "escape") {
+    if ($("journalOverlay").classList.contains("show")) toggleJournal();
+    else if (rxOpen) closeReceiver();
+    else if (mode === "scope") closeScope();
+    else if (mode === "lock") closeLock();
+    else if (mode === "object") closeObject();
+    return;
+  }
+  if (rxOpen && !e.repeat) {
+    if (k === "q" || k === "arrowleft") tune(-1);
+    if (k === "e" || k === "arrowright") tune(1);
+  }
+});
+
+/* ============ OBJECT VIEWS (journal, chart, desk, telescope) ============ */
+const OBJECTS = {
+  journal: () => `<div class="book hw">
+    <div class="page l"><div class="torn"></div>
+      <h4>Signal Log · Island Observatory · 1974</h4>
+      1. &nbsp;91.0 MHz — faint, static<br>2. &nbsp;94.0 MHz — voices?<br>3. &nbsp;96.0 MHz — pulse, repeating<br>
+      4. &nbsp;99.5 MHz — noise<br>5. 101.0 MHz — log fragment<br>6. 104.0 MHz — distorted<br>
+      7. 106.2 MHz — nothing<br>8. 107.8 MHz — the voice<br><span class="cross">9. ____________</span>
+    </div>
+    <div class="page r"><div class="ribbon"></div>
+      <h4>Notes</h4>
+      Months of listening. We thought the sounds came from distant stars, or someone out there. The signals only appear when certain stars line up overhead.<br><br>
+      The strongest trace lies near <span class="circle">96 MHz</span>. Scan <b>upward</b>. Use the <b>fine knob</b>.<br><br>
+      <b>Oct. 17, 1974.</b> <i>“We calculated Signal 9 tonight. It isn’t coming from space. It’s coming from right inside this room…”</i><br><br>
+      <span style="opacity:.6">— the writing stops here —</span>
+    </div></div>
+    <p>The last entry ends mid-sentence. Signal 9 has no frequency written down. Perhaps the telescope will give one.</p>`,
+  chart: () => `<div class="deskGrid"><div class="sketch hw" style="width:min(560px,100%);transform:none">
+    <svg viewBox="0 0 400 300" width="100%">
+      <rect width="400" height="300" fill="#d9c894"/>
+      <g transform="translate(200 150)" fill="none" stroke="#2a1b10">
+        <circle r="118" stroke-width="2"/><circle r="79" stroke-width=".8" stroke-dasharray="3 4"/><circle r="39" stroke-width=".8" stroke-dasharray="3 4"/>
+        <path d="M-118 0H118M0 -118V118" stroke-width=".6" stroke-dasharray="2 5"/>
+        ${Array.from({length: 12}, (_, k) => { const a = k * 30 * Math.PI / 180; return `<line x1="${(Math.sin(a) * 118).toFixed(1)}" y1="${(-Math.cos(a) * 118).toFixed(1)}" x2="${(Math.sin(a) * 126).toFixed(1)}" y2="${(-Math.cos(a) * 126).toFixed(1)}" stroke-width="1"/><text x="${(Math.sin(a) * 136).toFixed(1)}" y="${(-Math.cos(a) * 136).toFixed(1)}" font-size="9" fill="#2a1b10" stroke="none" text-anchor="middle" dominant-baseline="middle">${k * 30}</text>`; }).join("")}
+        <text x="4" y="-3" font-size="8" fill="#2a1b10" stroke="none">90°</text>
+        <text x="4" y="-41" font-size="8" fill="#2a1b10" stroke="none">60°</text>
+        <text x="4" y="-81" font-size="8" fill="#2a1b10" stroke="none">30°</text>
+        <g transform="translate(68.2 -39.4)"><path d="M0 -9 a9 9 0 1 0 0 18 a7 7 0 1 1 0 -18z" fill="#2a1b10" stroke="none"/></g>
+        <g transform="translate(-16.8 20.1)" stroke-width="1.4"><circle r="2" fill="#2a1b10"/><circle cx="8" cy="4" r="1.6" fill="#2a1b10"/><circle cx="-8" cy="6" r="1.6" fill="#2a1b10"/><circle cx="4" cy="-10" r="1.6" fill="#2a1b10"/><circle cx="-6" cy="-8" r="1.6" fill="#2a1b10"/><path d="M0 0L8 4M0 0L-8 6M0 0L4 -10M0 0L-6 -8"/></g>
+        <g transform="translate(29.5 35.2)"><circle r="17" stroke="#8a1d12" stroke-width="2.2"/><g transform="scale(.85)"><path d="M0 0 a2 2 0 0 1 4 0 a4 4 0 0 1 -8 0 a6 6 0 0 1 12 0 a8 8 0 0 1 -16 0 a10 10 0 0 1 20 0" stroke-width="2.2"/></g></g>
+      </g>
+      <text x="12" y="22" font-size="13" fill="#2a1b10">Oct. 17, 1974 · 23:47</text>
+      <text x="12" y="270" font-size="12" fill="#8a1d12">Spiral: AZ 140° · ALT 55°</text>
+      <text x="12" y="288" font-size="11" fill="#2a1b10">Signals only when the stars line up.</text>
+    </svg>
+    </div></div>
+    <p>The sky as it will stand on the night of October 17. The spiral is circled in red, with its position noted in the margin. The telescope should be pointed at the same spot.</p>`,
+  desk: () => `<div class="deskGrid">
+    <div class="polaroid"><svg viewBox="0 0 240 160"><defs><linearGradient id="sk" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8a8f98"/><stop offset="1" stop-color="#d8d2c0"/></linearGradient></defs>
+      <rect width="240" height="160" fill="url(#sk)"/><path d="M60 110 A60 60 0 0 1 180 110 Z" fill="#2c2f36"/><rect x="40" y="108" width="160" height="14" fill="#23262c"/><rect x="0" y="120" width="240" height="40" fill="#3b3a35"/>
+      ${Array.from({length: 8}, (_, k) => `<g fill="#17181b"><circle cx="${48 + k * 20}" cy="${128 + (k % 2) * 3}" r="5"/><rect x="${43 + k * 20}" y="${133 + (k % 2) * 3}" width="10" height="22" rx="3"/></g>`).join("")}</svg>
+      <div class="cap hw">Team of eight. Oct. 1974</div></div>
+    <div class="note hw">Find the receiver.<br>Do not transmit until you understand what happened.<br><span style="opacity:.6">— no name —</span></div>
+  </div><p>A photograph of the missing team and the note that brought you here.</p>`,
+  telescope: () => `<div class="deskGrid">
+    <svg viewBox="0 0 300 260" width="300"><defs><linearGradient id="tb" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8a93a0"/><stop offset=".5" stop-color="#3d4650"/><stop offset="1" stop-color="#1e2329"/></linearGradient></defs>
+      <path d="M150 170 L100 252 M150 170 L200 252 M150 170 L150 252" stroke="#262b32" stroke-width="7" stroke-linecap="round"/>
+      <g transform="rotate(-38 150 150)"><rect x="40" y="130" width="200" height="34" rx="6" fill="url(#tb)"/><rect x="226" y="123" width="26" height="48" rx="4" fill="#2a3038"/><rect x="26" y="134" width="16" height="26" fill="#1a1e24"/><rect x="104" y="126" width="8" height="42" fill="#58616d"/></g>
+      <circle cx="150" cy="168" r="13" fill="#3d4650" stroke="#14181d" stroke-width="3"/></svg>
+    <div class="sketch hw">
+      Two dials on the mount: <b>AZ</b> and <b>ALT</b>.<br>
+      A small counter on the side reads: <b style="color:#8a1d12">${SCOPE.solved ? "9 · 7 · 3" : "– · – · –"}</b><br><br>
+      <button onclick="closeObject();openScope()">🔭 LOOK THROUGH THE EYEPIECE</button>
+    </div>
+  </div><p>The telescope is locked to its mount, but the dials still turn.</p>`
+};
+function showObject(name) { if (!OBJECTS[name]) return; mode = "object"; $("objBody").innerHTML = OBJECTS[name](); $("objOverlay").classList.add("show"); }
+function closeObject() { $("objOverlay").classList.remove("show"); mode = "clues"; }
+
+/* ============ TELESCOPE PUZZLE ============ */
+const SCOPE = { az: 20, alt: 25, solved: false };
+const TARGET = { az: 140, alt: 55 };
+const SKY = [];       /* background stars */
+const SHAPES = [];    /* constellations: { pts: [[az, alt]...], edges: [[i, j]...], sp: bool } */
+(function buildSky() {
+  let s = 7; const r = () => (s = (s * 16807) % 2147483647) / 2147483647;
+  for (let i = 0; i < 420; i++) SKY.push({ az: r() * 360, alt: r() * 90, m: .6 + r() * 1.5 });
+  /* the spiral (the real target) */
+  const sp = [];
+  for (let i = 0; i < 46; i++) { const a = i * .42, rad = .35 + i * .085; sp.push([TARGET.az + Math.cos(a) * rad, TARGET.alt + Math.sin(a) * rad]); }
+  SHAPES.push({ pts: sp, edges: sp.slice(1).map((_, i) => [i, i + 1]), sp: true });
+  /* decoy crescent */
+  const cr = []; for (let t = .8; t < 5.6; t += .6) cr.push([60 + 2.6 * Math.cos(t), 30 + 2.6 * Math.sin(t)]);
+  SHAPES.push({ pts: cr, edges: cr.slice(1).map((_, i) => [i, i + 1]) });
+  /* decoy cluster */
+  const cl = [[220, 70], [222, 71], [218, 71.5], [221, 67.5], [218.5, 68]];
+  SHAPES.push({ pts: cl, edges: [[0, 1], [0, 2], [0, 3], [0, 4]] });
+})();
+
+function scopeProj(az, alt, W, H, ppd) {
+  const da = ((az - SCOPE.az + 540) % 360) - 180;
+  return [W / 2 + da * ppd, H / 2 - (alt - SCOPE.alt) * ppd];
+}
+function drawScope() {
+  const c = $("scopeCanvas"), g = c.getContext("2d"), W = c.width, H = c.height, ppd = W / 30;
+  g.clearRect(0, 0, W, H);
+  g.fillStyle = "#02040c"; g.fillRect(0, 0, W, H);
+  g.save(); g.beginPath(); g.arc(W / 2, H / 2, W / 2, 0, 7); g.clip();
+  SKY.forEach(st => {
+    const [x, y] = scopeProj(st.az, st.alt, W, H, ppd);
+    if (x < -5 || x > W + 5 || y < -5 || y > H + 5) return;
+    g.fillStyle = "rgba(220,230,255," + (.35 + st.m * .3).toFixed(2) + ")";
+    g.beginPath(); g.arc(x, y, st.m, 0, 6.3); g.fill();
+  });
+  SHAPES.forEach(sh => {
+    const P = sh.pts.map(p => scopeProj(p[0], p[1], W, H, ppd));
+    g.strokeStyle = sh.sp ? "rgba(255,240,200,.55)" : "rgba(160,190,255,.4)"; g.lineWidth = 1;
+    sh.edges.forEach(([i, j]) => { g.beginPath(); g.moveTo(P[i][0], P[i][1]); g.lineTo(P[j][0], P[j][1]); g.stroke(); });
+    P.forEach(p => { g.fillStyle = sh.sp ? "#fff6d8" : "#cfe0ff"; g.beginPath(); g.arc(p[0], p[1], sh.sp ? 2 : 1.8, 0, 6.3); g.fill(); });
+  });
+  /* reticle */
+  g.strokeStyle = "rgba(255,120,90,.6)"; g.lineWidth = 1;
+  g.beginPath(); g.arc(W / 2, H / 2, 26, 0, 6.3); g.stroke();
+  g.beginPath(); g.moveTo(W / 2 - 40, H / 2); g.lineTo(W / 2 - 10, H / 2); g.moveTo(W / 2 + 10, H / 2); g.lineTo(W / 2 + 40, H / 2);
+  g.moveTo(W / 2, H / 2 - 40); g.lineTo(W / 2, H / 2 - 10); g.moveTo(W / 2, H / 2 + 10); g.lineTo(W / 2, H / 2 + 40); g.stroke();
+  g.restore();
+
+  $("azVal").textContent = Math.round(SCOPE.az) + "°";
+  $("altVal").textContent = Math.round(SCOPE.alt) + "°";
+  $("azSlider").value = Math.round(SCOPE.az) % 360;
+  $("altSlider").value = Math.round(SCOPE.alt);
+
+  const da = ((TARGET.az - SCOPE.az + 540) % 360) - 180, dl = TARGET.alt - SCOPE.alt;
+  if (!SCOPE.solved && Math.hypot(da, dl) <= 2.2) { SCOPE.solved = true; revealCounter(); }
+}
+function revealCounter() {
+  const D = ["9", "7", "3"];
+  chime();
+  $("scopeMsg").textContent = "LOCKED ON the spiral. The counter on the side whirs to life…";
+  ["d1", "d2", "d3"].forEach((id, i) => {
+    const el = $(id); let n = 0;
+    const iv = setInterval(() => {
+      el.textContent = Math.floor(Math.random() * 10);
+      if (++n > 8 + i * 6) { clearInterval(iv); el.textContent = D[i]; el.classList.add("on"); }
+    }, 70);
+  });
+  setTimeout(() => { $("scopeMsg").textContent = "The counter reads 9 · 7 · 3."; }, 1800);
+  addJournal("Telescope counter", "Aligned on the spiral, the counter reads 9 · 7 · 3. The receiver dial is marked in MHz.");
+}
+function openScope() {
+  mode = "scope"; keys = {};
+  $("scopeOverlay").classList.add("show");
+  if (SCOPE.solved) { ["d1", "d2", "d3"].forEach((id, i) => { $(id).textContent = ["9", "7", "3"][i]; $(id).classList.add("on"); }); $("scopeMsg").textContent = "The counter reads 9 · 7 · 3."; }
+  drawScope();
+}
+function closeScope() { $("scopeOverlay").classList.remove("show"); mode = "clues"; }
+(function bindScope() {
+  const c = $("scopeCanvas");
+  $("azSlider").addEventListener("input", e => { SCOPE.az = +e.target.value; drawScope(); });
+  $("altSlider").addEventListener("input", e => { SCOPE.alt = +e.target.value; drawScope(); });
+  let last = null;
+  c.addEventListener("pointerdown", e => { last = [e.clientX, e.clientY]; c.setPointerCapture(e.pointerId); c.style.cursor = "grabbing"; });
+  c.addEventListener("pointermove", e => {
+    if (!last) return;
+    const k = (c.width / c.getBoundingClientRect().width) / (c.width / 30);
+    SCOPE.az = ((SCOPE.az - (e.clientX - last[0]) * k) % 360 + 360) % 360;
+    SCOPE.alt = Math.max(0, Math.min(90, SCOPE.alt + (e.clientY - last[1]) * k));
+    last = [e.clientX, e.clientY];
+    drawScope();
+  });
+  ["pointerup", "pointercancel"].forEach(ev => c.addEventListener(ev, () => { last = null; c.style.cursor = "grab"; }));
+})();
+
+/* ============ RADIO VISUALS ============ */
+function radioVisual(st) {
+  const pct = (f10 - 880) / 200;
+  $("needle").style.left = (4 + pct * 92) + "%";
+  $("vuNeedle").style.transform = "rotate(" + (-50 + st * 100) + "deg)";
+  $("knobMain").style.transform = "rotate(" + (pct * 720) + "deg)";
+  $("knobFine").style.transform = "rotate(" + ((f10 % 10) * 36) + "deg)";
+  $("knobFine").classList.toggle("locked", !fineUnlocked);
+}
+(function buildRadio() {
+  const sc = $("scale");
+  for (let m = 88; m <= 108; m++) {
+    const x = (m - 88) / 20 * 100, i = document.createElement("i");
+    i.style.left = x + "%"; if (m % 4 === 0) { i.className = "big"; const b = document.createElement("b"); b.style.left = x + "%"; b.textContent = m; sc.appendChild(b); }
+    sc.appendChild(i);
+  }
+  [["knobMain", "main"], ["knobFine", "fine"]].forEach(([id, kind]) => {
+    const el = $(id); let lastX = null, acc = 0;
+    el.addEventListener("pointerdown", e => { lastX = e.clientX; acc = 0; el.setPointerCapture(e.pointerId); el.style.cursor = "grabbing"; });
+    el.addEventListener("pointermove", e => {
+      if (lastX === null) return; acc += e.clientX - lastX; lastX = e.clientX;
+      while (Math.abs(acc) >= 14) { const d = acc > 0 ? 1 : -1; tune(d, kind); acc -= d * 14; }
+    });
+    ["pointerup", "pointercancel"].forEach(ev => el.addEventListener(ev, () => { lastX = null; el.style.cursor = "grab"; }));
+    el.addEventListener("wheel", e => { e.preventDefault(); tune(e.deltaY > 0 ? 1 : -1, kind); }, { passive: false });
+  });
+  radioVisual(strength(f10));
+})();
+
+/* ============ SIGNAL 9: THE PLAYBACK, THE TWIST, THE ENDINGS ============ */
+let twistBusy = false;
+
+function bootStep() {
+  const ctx = getAudio(); if (!ctx) return; const t = ctx.currentTime + .02;
+  noiseBurst(t, .2, 520, .4, "lowpass");                       /* wet squelch */
+  const o = ctx.createOscillator(), g = ctx.createGain();     /* heavy thump on wood */
+  o.type = "triangle"; o.frequency.setValueAtTime(90, t); o.frequency.exponentialRampToValueAtTime(40, t + .12);
+  g.gain.setValueAtTime(.3, t); g.gain.exponentialRampToValueAtTime(.001, t + .16);
+  o.connect(g); g.connect(ctx.destination); o.start(t); o.stop(t + .2);
+}
+function pageFlip() {
+  const ctx = getAudio(); if (!ctx) return;
+  noiseBurst(ctx.currentTime + .02, .28, 3600, .2, "highpass");
+}
+
+function buildWave() {
+  const w = $("twWave"); w.innerHTML = ""; w.className = "wave";
+  for (let i = 0; i < 28; i++) {
+    const b = document.createElement("i");
+    b.style.animationDelay = (-Math.random() * .8).toFixed(2) + "s";
+    b.style.animationDuration = (.45 + Math.random() * .6).toFixed(2) + "s";
+    w.appendChild(b);
+  }
+}
+
+async function listenSignal() {
+  if (twistBusy) return;
+  if (f10 !== 973) { $("rxStatus").textContent = "Only static here. Find the clear signal first."; return; }
+  twistBusy = true;
+  rxOpen = false; stopStatic();
+  $("rxOverlay").classList.remove("show");
+  mode = "twist";
+  if (soundOn) music.volume = 0.2;
+  $("twReveal").style.display = "none"; $("twReveal").innerHTML = "";
+  $("twContinue").style.display = "none";
+  $("twCaption").style.display = "block";
+  $("twEyebrow").textContent = "97.3 MHz · Signal 9 · Recording";
+  buildWave();
+  $("twistOverlay").classList.add("show");
+
+  const cap = html => { $("twCaption").innerHTML = html; };
+  const ctx = getAudio();
+
+  cap("<i>The loud static stops. The speaker hisses… then goes strangely quiet.</i>");
+  if (ctx) noiseBurst(ctx.currentTime, 1.6, 2200, .08, "bandpass");
+  await sleep(2400);
+
+  cap("🥾 <i>Wet boots walking across wooden floorboards…</i><br><small>The exact sound of you walking into this room, minutes ago.</small>");
+  for (let i = 0; i < 7; i++) { bootStep(); await sleep(520); }
+  await sleep(900);
+
+  cap("📄 <i>Someone flipping through paper pages…</i><br><small>The exact sound of you reading the diary.</small>");
+  for (let i = 0; i < 5; i++) { pageFlip(); await sleep(650); }
+  await sleep(1100);
+
+  const tw = $("twistOverlay");
+  $("twWave").classList.add("panic"); tw.classList.add("alarm"); tw.querySelector(".box").classList.add("shake");
+  alarm(24);
+  const lines = [
+    ["“H-hello? If anyone is hearing this—”", "H-hello? Is anyone— if anyone is hearing this!", 2800, 6],
+    ["“Signal Nine isn’t from space! It’s HERE, it’s us, it’s the room—”", "Signal nine isn't from space! It's here! It's us! It's the room!", 3200, 10],
+    ["“It’s a voice from fifty years in the future! Someone is standing in this room RIGHT NOW!”", "It's a voice from fifty years in the future! Someone is standing in this room right now!", 4200, 14],
+    ["“The floor— the walls— the rift is OPENING, it’s pulling us in! GET BACK! GET BACK FROM THE—”", "The floor! The walls! The rift is opening! It's pulling us in! Get back! Get back!", 4200, 20],
+    ["“Don’t touch the transmitter! Whoever speaks is TAKEN! Don’t answer it, don’t— AHHHH—”", "Don't touch the transmitter! Whoever speaks is taken! Don't answer it! Don't! Ahhh!", 4600, 28]
+  ];
+  for (const [text, say, wait, n] of lines) {
+    cap("<b style='color:#ff7a5a'>A voice from 1974, screaming:</b><br>" + text + "<br><small>[ glass breaking · people screaming in the background ]</small>");
+    panicSpeak(say); crash(); screamsBg(wait / 1000, n);
+    if (ctx) noiseBurst(ctx.currentTime, .8, 2600, .14, "bandpass");
+    await sleep(wait);
+  }
+  stopSpeaking(); crash(); powerDown();
+  tw.classList.remove("alarm"); tw.querySelector(".box").classList.remove("shake");
+  $("twWave").classList.remove("panic"); $("twWave").classList.add("still");
+  cap("<i>[ the transmission cuts out ]</i>");
+  await sleep(2600);
+  cap("<i>…and then, under the hiss, one last voice. Calm. Exhausted.</i><br>“Beacon armed. One-oh-eight. Fifty years. Please, someone… <b>listen. Don’t speak.</b>”");
+  speak("Beacon armed. One oh eight. Fifty years. Please. Someone. Listen. Don't speak.", { rate: .8, pitch: 1.1, volume: .45 });
+  await sleep(6500);
+
+  $("twEyebrow").textContent = "What really happened";
+  $("twCaption").style.display = "none";
+  $("twReveal").innerHTML =
+    "<h3>THE TEMPORAL RIFT</h3>" +
+    "<p>The island sits on a <b>tear in time</b>. Tuned to <b>97.3 MHz</b>, this room is a two-way line between 1974 and tonight.</p>" +
+    "<p>Signal 9 was <b>you</b>: your boots, the pages you turned. The team heard an empty room walking. Terrified, one of them <b>keyed the transmitter and called out</b>.</p>" +
+    "<p>That was the mistake. <b>The rift takes whoever transmits.</b> All eight were pulled into the dark between the years. By morning the island was silent. The supply boat found cold tea and a humming generator, and the Navy sealed the place and struck it from the charts. That is why it was abandoned.</p>" +
+    "<p>The last man alive wired the beacon on 108 MHz to call the only one who could help. You have only listened, so the rift has no hold on you. <b>Yet.</b></p>";
+  $("twReveal").style.display = "block";
+  $("twContinue").style.display = "inline-block";
+  addJournal("Signal 9 · 97.3 MHz", "Boots on wood. Pages turning. A panicked voice from 1974: Signal 9 is a voice from fifty years in the future, and the rift is pulling the scientists in. The sounds on the recording were mine.");
+  twistBusy = false;
+}
+
+function scream(t, f0, dur, vol, pan) {
+  const ctx = getAudio(); if (!ctx) return;
+  const o = ctx.createOscillator(), lfo = ctx.createOscillator(), lg = ctx.createGain(), g = ctx.createGain();
+  const p = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+  o.type = "sawtooth";
+  o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f0 * 1.9, t + dur * .3); o.frequency.exponentialRampToValueAtTime(f0 * 1.15, t + dur);
+  lfo.frequency.value = 6 + Math.random() * 5; lg.gain.value = f0 * .07; lfo.connect(lg); lg.connect(o.frequency);
+  g.gain.setValueAtTime(.0001, t); g.gain.linearRampToValueAtTime(vol * 3, t + .05); g.gain.setValueAtTime(vol * 3, t + dur * .65); g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+  [[850, 5], [1700, 6], [2900, 8]].forEach(([fr, q]) => { const b = ctx.createBiquadFilter(); b.type = "bandpass"; b.frequency.value = fr; b.Q.value = q; o.connect(b); b.connect(g); });
+  if (p) { p.pan.value = pan; g.connect(p); p.connect(ctx.destination); } else g.connect(ctx.destination);
+  o.start(t); lfo.start(t); o.stop(t + dur + .05); lfo.stop(t + dur + .05);
+  noiseBurst(t, dur, 3000, vol * .4, "bandpass");
+}
+function screamsBg(sec, n) {
+  const ctx = getAudio(); if (!ctx) return;
+  for (let i = 0; i < n; i++) scream(ctx.currentTime + Math.random() * sec, 330 + Math.random() * 750, .5 + Math.random() * 1.2, .05 + Math.random() * .08, Math.random() * 2 - 1);
+}
+function alarm(sec) {
+  const ctx = getAudio(); if (!ctx) return; const t = ctx.currentTime;
+  const o = ctx.createOscillator(), g = ctx.createGain(); o.type = "square";
+  for (let x = 0; x < sec; x += .5) o.frequency.setValueAtTime(x % 1 ? 520 : 760, t + x);
+  g.gain.setValueAtTime(.05, t); g.gain.linearRampToValueAtTime(.001, t + sec);
+  o.connect(g); g.connect(ctx.destination); o.start(t); o.stop(t + sec);
+}
+function crash() { const c = getAudio(); if (!c) return; noiseBurst(c.currentTime, .6, 700, .5, "lowpass"); noiseBurst(c.currentTime, .3, 5200, .25, "highpass"); }
+function panicSpeak(s) {
+  try {
+    stopSpeaking();
+    (s.match(/[^!?—]+[!?—]*/g) || [s]).forEach(c => {
+      const u = new SpeechSynthesisUtterance(c.trim());
+      u.rate = 1.5 + Math.random() * .4; u.pitch = 1.75 + Math.random() * .25; u.volume = 1;
+      window.speechSynthesis.speak(u);
+    });
+  } catch (e) {}
+}
+
+function toChoice() {
+  $("twistOverlay").classList.remove("show");
+  $("choiceOverlay").classList.add("show");
+  mode = "choice";
+}
+
+function powerDown() {
+  const ctx = getAudio(); if (!ctx) return; const t = ctx.currentTime;
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.type = "sawtooth"; o.frequency.setValueAtTime(320, t); o.frequency.exponentialRampToValueAtTime(28, t + 2);
+  g.gain.setValueAtTime(.18, t); g.gain.exponentialRampToValueAtTime(.001, t + 2.1);
+  o.connect(g); g.connect(ctx.destination); o.start(t); o.stop(t + 2.2);
+  noiseBurst(t, 1.2, 1500, .2, "bandpass");
+}
+
+async function playEnding(paras, after) {
+  const el = $("endText"); el.innerHTML = ""; $("endBtn").style.display = "none";
+  for (const t of paras) {
+    const p = document.createElement("p"); p.innerHTML = t; if (t.startsWith("§")) { p.className = "card"; p.innerHTML = t.slice(1); }
+    el.appendChild(p); await sleep(4200);
+  }
+  if (after) { await after(); return; }
+  $("endBtn").style.display = "flex";
+}
+
+/* ---------- ENDING A EPILOGUE: the final pictures ---------- */
+const EPI_SHOTS_A = [
+  { img: "./ending_a_1.jpg", t: "The final decision", c: "He switches off the radio. One last burst of static, then the dial goes dark." },
+  { img: "./ending_a_2.jpg", t: "The loop breaks",    c: "The rift contracts and disappears. The clocks return to normal. The room falls silent." },
+  { img: "./ending_a_3.jpg", t: "The departure",      c: "He looks back at the silent radio, collects his backpack, and walks out through the doorway." },
+  { img: "./ending_a_4.jpg", t: "The shore",          c: "He descends toward his boat while the storm weakens. The supernatural glow vanishes from the observatory." },
+  { img: "./ending_a_5.jpg", t: "The final goodbye",  c: "He pauses, watches the first light of dawn, and climbs into the boat." },
+  { img: "./ending_a_6.jpg", t: "The signal is gone", c: "The camera pulls away as the boat disappears into the mist." },
+  { img: "./ending_a_7.jpg", t: "",                   c: "The island remains dark.", wide: true }
+];
+/* Ending B pictures (cut from the storyboard; keep next to index.html) */
+const EPI_SHOTS_B = [
+  { img: "./ending_b_1.jpeg", t: "The realization",          c: "You grip the microphone and speak the coordinates, the date, the warning. Halfway through, you recognize your own voice." },
+  { img: "./ending_b_2.jpeg", t: "The rift consumes him",    c: "The floor lets go. Every night between 1974 and tonight burns at once, and the eight cry out as you fall past." },
+  { img: "./ending_b_3.png", t: "The engineer is released", c: "The rift always holds one voice in the dark. As you take his place, the last engineer dissolves out of the static." },
+  { img: "./ending_b_4.jpeg", t: "The shore",                c: "He staggers onto the rocks, into a dawn he has not seen since 1974. The island is quiet behind him." },
+  { img: "./ending_b_5.png", t: "The ninth voice",          c: "Adrift between the years, clocks spinning around you, you keep the line open. The broadcast on 108 MHz is yours now." },
+  { img: "./ending_b_6.png", t: "The loop begins again",    c: "Far away, in a quiet house, an old radio crackles to life and begins to speak." }
+];
+const EPI_FINAL_B = '<p class="q">The ninth signal was never meant to be heard.<br>It was meant to be answered.</p><p class="t">THE NINTH SIGNAL</p><p class="s">THE LOOP NEVER ENDS.</p>';
+let EPI_SHOTS = EPI_SHOTS_A;
+let EPI_HOLD = 6800;          // how long each picture stays (ms)
+let epiToken = 0, epiSkipped = false, epiWake = null, epiFront = 0;
+const epiWait = ms => new Promise(r => { epiWake = r; setTimeout(r, ms); });
+
+function skipEpilogue() { epiSkipped = true; if (epiWake) epiWake(); }
+
+async function epiShow(i) {
+  const s = EPI_SHOTS[i], frame = $("epiFrame"), cap = $("epiCap");
+  const imgs = [$("epiImgA"), $("epiImgB")];
+  const out = imgs[epiFront], inc = imgs[epiFront ^ 1];
+
+  cap.style.opacity = 0;
+  const reshape = !!s.wide !== frame.classList.contains("wide");
+  if (reshape) {                       // the last picture is an ultra-wide shot: change the frame while it is dark
+    frame.style.opacity = 0;
+    await sleep(950);
+    frame.classList.toggle("wide", !!s.wide);
+    out.style.opacity = 0;
+  } else await sleep(450);
+
+  inc.src = s.img;
+  inc.classList.remove("kb"); void inc.offsetWidth; inc.classList.add("kb");
+  inc.style.opacity = 1;
+  if (!reshape) out.style.opacity = 0; // cross-fade
+  frame.style.opacity = 1;
+  epiFront ^= 1;
+
+  $("epiTitle").textContent = s.t;
+  $("epiText").textContent = s.c;
+  cap.style.opacity = 1;
+}
+
+async function playEpilogue(which) {
+  const token = ++epiToken;
+  EPI_SHOTS = which === "B" ? EPI_SHOTS_B : EPI_SHOTS_A;
+  $("epiFinal").innerHTML = which === "B" ? EPI_FINAL_B : "";
+  $("epiEnd").textContent = which === "B" ? "Ending B · The Loop Continues" : "Ending A · Silence";
+  epiSkipped = false; epiFront = 0;
+  EPI_SHOTS.forEach(s => { const im = new Image(); im.src = s.img; });   // preload
+  await sleep(2600);                                                       // let the last text line breathe
+  const ep = $("epilogue");
+  $("epiBlack").classList.remove("on", "btn");
+  $("epiFrame").classList.remove("wide");
+  ep.classList.add("show"); void ep.offsetWidth; ep.classList.add("on");
+  await sleep(1700);
+
+  for (let i = 0; i < EPI_SHOTS.length && !epiSkipped; i++) {
+    await epiShow(i);
+    await epiWait(i === EPI_SHOTS.length - 1 ? EPI_HOLD + 2200 : EPI_HOLD);
+  }
+
+  /* fade to black, then offer to play again */
+  $("epiSkip").style.display = "none";
+  $("epiBlack").classList.add("on");
+  await sleep(3200);
+  $("epiBlack").classList.add("btn");
+}
+
+function ending(which) {
+  $("choiceOverlay").classList.remove("show");
+  mode = "end";
+  if (soundOn) music.volume = 0.7;
+
+  // Save which ending they chose so we can show it after payment
+  window.pendingEnding = which;
+
+  // Show the paywall prompt instead of the ending directly
+  const el = $("endText");
+  el.innerHTML = `
+    <div style="text-align: center; padding: 20px;">
+      <h3 style="color: #ffbf5e; font-size: 22px; margin-bottom: 12px;">Unlock the Conclusion</h3>
+      <p style="font-size: 16px; line-height: 1.6; margin-bottom: 20px;">To discover what happens next pay this amount ($2.99) to unlock the final epilogue and audio logs.</p>
+      
+      <!-- Replace '#' with your actual Stripe, PayPal, or payment link -->
+      <a href="#" target="_blank" onclick="simulatePayment(event)">
+        <button style="background: #244674; color: #edf2ff; padding: 14px 28px; font-size: 14px; cursor: pointer; border: 1px solid var(--blue); letter-spacing: 1.5px;">
+          PAY $2.99 & UNLOCK ENDING →
+        </button>
+      </a>
+    </div>
+  `;
+  
+  $("endEyebrow").textContent = "Premium Content Locked";
+  $("endTitle").textContent = "Earning Vehicle / Paywall";
+  $("endBtn").style.display = "none";
+  $("endOverlay").classList.add("show");
+}
+
+// Function that runs after payment is completed
+function simulatePayment(e) {
+  e.preventDefault(); // Prevents opening a dead link for testing purposes
+  
+  // Hide the paywall message
+  const which = window.pendingEnding;
+  const ctx = getAudio();
+  
+  if (which === "A") {
+    powerDown();
+    $("endEyebrow").textContent = "Ending A · The Door Kept Shut";
+    $("endTitle").textContent = "SILENCE";
+    playEnding([
+      "You throw the main switch. The dial dims, the speaker coughs once, and the glow drains from the room. Behind the walls, something that has been breathing for fifty years goes still.",
+      "The rift cannot unmake what already happened. The eight were taken the moment one of them keyed the transmitter, long before you were born. Closing it does not bring them back. It only means that nothing will ever come through again.",
+      "You never touched the key tonight, so the rift never had you. You walk out into the cold dawn, past the kettle, past the photograph on the desk. You could swear there are eight faces in it, and that one of them is watching you leave.",
+      "At home, the old radio stays quiet. Nobody will ever hear the ninth signal again, and nobody will ever know who stopped it.",
+      "§SOME DOORS ARE KEPT SHUT BY THE PEOPLE WHO SURVIVE THEM."
+    ], () => playEpilogue("A"));
+  } else {
+    if (ctx) { noiseBurst(ctx.currentTime, 3, 2400, .3, "bandpass"); chime(); screamsBg(3, 6); }
+    $("endRift").style.display = "block"; setTimeout(() => $("endRift").classList.add("pull"), 100);
+    speak("Coordinates. A tiny, dark island. October seventeenth, nineteen seventy four. The ninth signal was never meant to be heard.", { rate: .85, pitch: .6, volume: .8 });
+    $("endEyebrow").textContent = "Ending B · The Loop Continues";
+    $("endTitle").textContent = "THE NINTH SIGNAL";
+    playEnding([
+      "You grip the transmit key and speak the coordinates, the date, the warning. Halfway through you recognize the words. They are the ones the beacon has been repeating, and the voice carrying them is yours.",
+      "The rift takes whoever transmits. The floor lets go. The walls stretch into a white corridor where every night between 1974 and tonight burns at once, and you hear the eight of them cry out as you fall past.",
+      "The rift always holds one voice in the dark. For fifty years it was the last engineer, the man who armed the beacon and kept the line open so someone could come. You have taken his place. He staggers out of the static onto the shore, into a dawn he has not seen since 1974.",
+      "The broadcast on 108 MHz is yours now. Far away, in a quiet house, an old radio crackles to life and begins to speak.",
+      "§THE NINTH SIGNAL WAS NEVER MEANT TO BE HEARD. IT WAS MEANT TO BE ANSWERED."
+    ], () => playEpilogue("B"));
+  }
+}
+
+layoutStage();
+placeDoor();
+loadSheets();
+requestAnimationFrame(animationTick);
+</script>
+</body>
+</html>
